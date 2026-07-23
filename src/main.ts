@@ -22,14 +22,19 @@ import {
   Setting,
 } from "obsidian";
 import {
-  buildCompletionMessages,
+  buildCompletionRequest,
+  COMPLETION_MODELS,
+  DEFAULT_MODEL_ID,
+  getCompletionModel,
   requestStartDelay,
   sanitizeCompletion,
+  type CompletionBackend,
   type CompletionSnapshot,
 } from "./completion";
 
 interface InlineCompleteSettings {
   apiKey: string;
+  tinkerApiKey: string;
   model: string;
   pauseDelayMs: number;
   requestHeadStartMs: number;
@@ -41,7 +46,8 @@ interface InlineCompleteSettings {
 
 const DEFAULT_SETTINGS: InlineCompleteSettings = {
   apiKey: "",
-  model: "google/gemini-2.5-flash-lite",
+  tinkerApiKey: "",
+  model: DEFAULT_MODEL_ID,
   pauseDelayMs: 2000,
   requestHeadStartMs: 1500,
   maxTokens: 64,
@@ -55,12 +61,13 @@ interface GhostText {
   text: string;
 }
 
-interface OpenRouterResponse {
+interface CompletionResponse {
   choices?: Array<{
     message?: { content?: string | null };
     text?: string;
   }>;
   error?: { message?: string };
+  detail?: string;
 }
 
 const setGhostText = StateEffect.define<GhostText | null>();
@@ -214,9 +221,10 @@ class CompletionController {
   private async request(): Promise<void> {
     if (!this.eligible()) return;
 
-    const apiKey = this.plugin.getApiKey();
+    const model = this.plugin.getSelectedModel();
+    const apiKey = this.plugin.getApiKey(model.backend);
     if (!apiKey) {
-      this.plugin.notifyMissingKey();
+      this.plugin.notifyMissingKey(model.backend);
       return;
     }
 
@@ -228,44 +236,40 @@ class CompletionController {
       this.plugin.app.workspace.getActiveFile()?.basename ??
       "Untitled";
     const snapshot: CompletionSnapshot = { title, document, cursor };
-    const messages = buildCompletionMessages(snapshot);
     const generation = ++this.generation;
     const controller = new AbortController();
     this.abortController = controller;
 
     try {
-      const response = await fetch(
-        "https://openrouter.ai/api/v1/chat/completions",
-        {
+      const isTinker = model.backend === "tinker";
+      const request = buildCompletionRequest(model, snapshot, {
+        maxTokens: this.plugin.settings.maxTokens,
+        temperature: this.plugin.settings.temperature,
+        routeByLatency: this.plugin.settings.routeByLatency,
+      });
+      const response = await fetch(request.url, {
           method: "POST",
           signal: controller.signal,
           headers: {
             Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://obsidian.md",
-            "X-Title": "Obsidian Inline Complete",
-          },
-          body: JSON.stringify({
-            model: this.plugin.settings.model,
-            messages: [
-              { role: "system", content: messages.system },
-              { role: "user", content: messages.user },
-            ],
-            max_tokens: this.plugin.settings.maxTokens,
-            temperature: this.plugin.settings.temperature,
-            top_p: 0.9,
-            stream: false,
-            ...(this.plugin.settings.routeByLatency
-              ? { provider: { sort: "latency" } }
+            ...(!isTinker
+              ? {
+                  "HTTP-Referer": "https://obsidian.md",
+                  "X-Title": "Obsidian Inline Complete",
+                }
               : {}),
-          }),
-        },
-      );
+          },
+          body: JSON.stringify(request.body),
+        });
 
-      const payload = (await response.json()) as OpenRouterResponse;
+      const payload = (await response.json()) as CompletionResponse;
       if (!response.ok) {
+        const service = isTinker ? "Tinker" : "OpenRouter";
         throw new Error(
-          payload.error?.message ?? `OpenRouter returned ${response.status}`,
+          payload.error?.message ??
+            payload.detail ??
+            `${service} returned ${response.status}`,
         );
       }
 
@@ -406,7 +410,19 @@ export default class InlineCompletePlugin extends Plugin {
     this.addSettingTab(new InlineCompleteSettingTab(this.app, this));
   }
 
-  getApiKey(): string {
+  getSelectedModel() {
+    return getCompletionModel(this.settings.model);
+  }
+
+  getApiKey(backend: CompletionBackend): string {
+    if (backend === "tinker") {
+      const environmentKey =
+        typeof process !== "undefined"
+          ? process.env.TINKER_API_KEY?.trim()
+          : "";
+      return environmentKey || this.settings.tinkerApiKey.trim();
+    }
+
     const environmentKey =
       typeof process !== "undefined"
         ? process.env.OPENROUTER_API_KEY?.trim()
@@ -424,11 +440,20 @@ export default class InlineCompletePlugin extends Plugin {
     for (const controller of this.liveControllers) controller.refresh();
   }
 
-  notifyMissingKey(): void {
+  async setModel(model: string): Promise<void> {
+    this.settings.model = getCompletionModel(model).id;
+    await this.saveSettings();
+    for (const controller of this.liveControllers) controller.refresh();
+  }
+
+  notifyMissingKey(backend: CompletionBackend): void {
     if (this.missingKeyNotified) return;
     this.missingKeyNotified = true;
+    const service = backend === "tinker" ? "Tinker" : "OpenRouter";
+    const variable =
+      backend === "tinker" ? "TINKER_API_KEY" : "OPENROUTER_API_KEY";
     new Notice(
-      "Inline Complete needs OPENROUTER_API_KEY or an API key in its settings.",
+      `Inline Complete needs ${variable} or a ${service} key in its settings.`,
       8000,
     );
   }
@@ -445,6 +470,7 @@ export default class InlineCompletePlugin extends Plugin {
 
   async loadSettings(): Promise<void> {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    this.settings.model = getCompletionModel(this.settings.model).id;
   }
 
   async saveSettings(): Promise<void> {
@@ -466,11 +492,17 @@ class InlineCompleteSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.createEl("h2", { text: "Inline Complete" });
 
+    const hasTinkerKey = Boolean(this.plugin.getApiKey("tinker"));
+    const hasOpenRouterKey = Boolean(
+      this.plugin.getApiKey("openrouter-prefill"),
+    );
     containerEl.createEl("p", {
       cls: "inline-complete-settings-note",
-      text: this.plugin.getApiKey()
-        ? "An OpenRouter key is available. OPENROUTER_API_KEY takes precedence over the key saved here."
-        : "Set OPENROUTER_API_KEY before launching Obsidian, or save a key below. The full active note is sent to the selected model when a completion is requested.",
+      text: [
+        `Tinker key: ${hasTinkerKey ? "available" : "missing"}.`,
+        `OpenRouter key: ${hasOpenRouterKey ? "available" : "missing"}.`,
+        "Environment variables take precedence over saved keys. The selected service receives the active note when a completion is requested.",
+      ].join(" "),
     });
 
     new Setting(containerEl)
@@ -499,20 +531,44 @@ class InlineCompleteSettingTab extends PluginSettingTab {
       });
     apiSetting.settingEl.addClass("inline-complete-secret");
 
+    const tinkerApiSetting = new Setting(containerEl)
+      .setName("Tinker API key")
+      .setDesc("Fallback when TINKER_API_KEY is not available to Obsidian.")
+      .addText((text) => {
+        text
+          .setPlaceholder("Tinker API key")
+          .setValue(this.plugin.settings.tinkerApiKey)
+          .onChange(async (value) => {
+            this.plugin.settings.tinkerApiKey = value.trim();
+            await this.plugin.saveSettings();
+          });
+        text.inputEl.type = "password";
+      });
+    tinkerApiSetting.settingEl.addClass("inline-complete-secret");
+
     new Setting(containerEl)
       .setName("Model")
       .setDesc(
-        "Any OpenRouter model slug. Gemini 2.5 Flash-Lite is the low-latency default.",
+        "Tinker choices use raw text completion. OpenRouter choices continue a prefilled assistant response.",
       )
-      .addText((text) =>
-        text
-          .setPlaceholder(DEFAULT_SETTINGS.model)
+      .addDropdown((dropdown) => {
+        for (const model of COMPLETION_MODELS) {
+          dropdown.addOption(model.id, model.label);
+        }
+        dropdown
           .setValue(this.plugin.settings.model)
           .onChange(async (value) => {
-            this.plugin.settings.model = value.trim() || DEFAULT_SETTINGS.model;
-            await this.plugin.saveSettings();
-          }),
-      );
+            await this.plugin.setModel(value);
+            this.display();
+          });
+      });
+
+    if (this.plugin.getSelectedModel().providerOnly) {
+      containerEl.createEl("p", {
+        cls: "inline-complete-settings-note",
+        text: "This Kimi option is locked to DeepInfra with provider fallback disabled, so it will fail rather than silently use another host.",
+      });
+    }
 
     new Setting(containerEl)
       .setName("Pause before showing")
@@ -580,7 +636,9 @@ class InlineCompleteSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Prefer lowest latency")
-      .setDesc("Ask OpenRouter to route to the lowest-latency provider.")
+      .setDesc(
+        "Ask OpenRouter to prefer its lowest-latency provider. Ignored when a model is locked to a specific provider.",
+      )
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.routeByLatency)
