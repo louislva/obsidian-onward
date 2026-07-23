@@ -1,7 +1,7 @@
 # Linked-context prompt builder
 
-This document describes the experimental `prompt-builder` branch. The branch
-is intentionally not installed as the live Obsidian plugin.
+This document describes the linked-context prompt builder used by Inline
+Complete.
 
 ## Goal
 
@@ -155,5 +155,5 @@ have a separate toggle.
 - Markdown destinations containing unusual nested parentheses may not all be
   discovered by the lightweight source scanner.
 - Web cache is in-memory and resets when the plugin reloads.
-- The branch has pure serialization/discovery tests and a production build
-  check, but has not been installed into the live vault.
+- The implementation has pure serialization/discovery tests plus mocked-vault
+  journal-loading tests.

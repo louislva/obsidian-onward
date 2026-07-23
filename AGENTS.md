@@ -61,10 +61,9 @@ plugin. Treat this file as the project handoff for future agents.
 
 ## Current behavior
 
-- Branch note: `prompt-builder` is intentionally not installed. It resolves
-  yesterday's and today's journals plus direct web and vault links into a
-  synthetic retrieval transcript before the active-file prefill. Read
-  `docs/prompt-builder.md` before changing or merging it.
+- The prompt builder resolves yesterday's and today's journals plus direct web
+  and vault links into a synthetic retrieval transcript before the active-file
+  prefill. Read `docs/prompt-builder.md` before changing it.
 - Suggestions appear as gray ghost text at the cursor.
 - `Tab` accepts; `Escape` dismisses until the document changes.
 - Requests are prefetched during the pause but are not revealed before the
@@ -93,8 +92,8 @@ plugin. Treat this file as the project handoff for future agents.
   Tinker, or the full messages array as formatted JSON for chat models. The
   item is keyboard-accessible with Enter/Space. Preserve this diagnostic
   behavior when modifying request handling.
-- On `prompt-builder`, web context uses Obsidian `requestUrl`, Mozilla
-  Readability, and `htmlToMarkdown`; web results are cached for 15 minutes.
+- Web context uses Obsidian `requestUrl`, Mozilla Readability, and
+  `htmlToMarkdown`; web results are cached for 15 minutes.
   Retrieval is non-recursive and bounded to eight resources, 12,000 characters
   each, plus up to two recent journal notes; all share a 48,000-character total
   budget by default. Context failures are omissions, not model failures, and
@@ -122,11 +121,11 @@ new or omitted curated models are appended so the ranking remains complete.
   `https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1/completions`
 - Tinker's HTTP endpoint currently accepts the public base-model ID directly,
   despite documentation emphasizing `tinker://` sampler checkpoint paths.
-- The raw prompt is a Markdown title followed by the document prefix through
-  the cursor, with ordinary trailing spaces canonicalized away so whitespace
-  belongs to the generated token. A raw causal completion cannot also consume
-  the suffix unless proper model-specific fill-in-the-middle tokens are
-  introduced and tested.
+- The raw prompt is one flattened `user:`/`assistant:` retrieval transcript:
+  recent journals, direct linked context, then `vault.read` for the active file.
+  It ends inside the active document through the cursor. A raw causal
+  completion cannot also consume the suffix unless proper model-specific
+  fill-in-the-middle tokens are introduced and tested.
 
 ### OpenRouter assistant continuation
 
@@ -134,9 +133,10 @@ new or omitted curated models are appended so the ranking remains complete.
 - `anthropic/claude-opus-4.5` (`Opus 4.5`)
 - `anthropic/claude-opus-4.6` (`Opus 4.6`)
 - Endpoint: `https://openrouter.ai/api/v1/chat/completions`
-- The complete note, including a cursor marker and suffix, is supplied as
-  context. The document prefix is also placed in an assistant message so the
-  model treats it as text it authored.
+- Recent journals and direct linked resources are supplied as user/assistant
+  retrieval pairs. The final user message reads the active file and the final
+  assistant message contains the document prefix through the cursor, so the
+  model treats it as text it authored. The suffix is not sent.
 - Opus 4.5 supports a native final-assistant prefill.
 - Opus 4.6 rejects conversations ending with an assistant message. Its supported
   approximation is an assistant-history message followed by a terse user turn
@@ -154,10 +154,9 @@ new or omitted curated models are appended so the ranking remains complete.
   variables, which is why both password fields exist.
 - Never print, log, commit, replace, or expose saved key values.
 - It is safe to inspect boolean key presence when diagnosing configuration.
-- The selected service receives note content on each completion request. On
-  `prompt-builder`, it also receives the successfully retrieved contents of
-  recent journals plus direct vault and web links; fallback services may
-  receive the same context.
+- The selected service receives note content on each completion request. It
+  also receives the successfully retrieved contents of recent journals plus
+  direct vault and web links; fallback services may receive the same context.
 
 ## Useful current facts
 

@@ -1,10 +1,5 @@
 # Inline Complete
 
-> **Experimental branch:** `prompt-builder` constructs completion prompts from
-> yesterday's and today's journals plus direct web and vault links before
-> prefilling the active note. It is not the installed plugin. See
-> `docs/prompt-builder.md`.
-
 Copilot-style sentence continuation for Obsidian:
 
 - waits for a real pause before revealing anything (2 seconds by default);
@@ -37,16 +32,14 @@ request resets that model's failure history.
 
 The initial order starts with `Qwen/Qwen3.5-35B-A3B-Base` on Tinker. Existing
 installations migrate their previously selected model to the top and append the
-other choices underneath it. Raw Tinker requests give the base model the note
-name and everything before the cursor, then request a literal continuation.
-On this branch, prompts first read yesterday's and today's journals from the
-configurable `Journal` folder when they exist, excluding the active file. They
-then simulate readable retrieval of direct web links and vault links from the
-active note. Webpages are reduced to Reader View-style Markdown and linked
-vault files are resolved through Obsidian. The prompt ends with the active file
-through the cursor. OpenRouter models receive real user/assistant
-command-response pairs; raw Tinker models receive the same session as one
-causal transcript.
+other choices underneath it. Prompts first read yesterday's and today's
+journals from the configurable `Journal` folder when they exist, excluding the
+active file. They then simulate readable retrieval of direct web links and
+vault links from the active note. Webpages are reduced to Reader View-style
+Markdown and linked vault files are resolved through Obsidian. The prompt ends
+with the active file through the cursor. OpenRouter models receive real
+user/assistant command-response pairs; raw Tinker models receive the same
+session as one causal transcript.
 
 Available models:
 
@@ -70,10 +63,9 @@ up/down controls.
 
 API keys are never logged. The first eligible service receives note content
 whenever a completion request starts. If that request fails, later fallback
-services may receive the same note sequentially until one succeeds. On the
-`prompt-builder` branch, those requests also include the successfully retrieved
-contents of recent journals plus direct web and vault links unless **Read
-supporting context** is disabled.
+services may receive the same note sequentially until one succeeds. Each
+request also includes the successfully retrieved contents of recent journals
+plus direct web and vault links unless **Read supporting context** is disabled.
 
 ## Status indicator
 
