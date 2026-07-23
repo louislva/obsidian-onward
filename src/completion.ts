@@ -11,7 +11,6 @@ export interface CompletionModel {
   shortName: string;
   backend: CompletionBackend;
   apiModel: string;
-  providerOnly?: string;
   prefillMode?: "native" | "assistant-history";
 }
 
@@ -31,12 +30,11 @@ export const COMPLETION_MODELS: CompletionModel[] = [
     apiModel: "Qwen/Qwen3.5-9B-Base",
   },
   {
-    id: "moonshotai/kimi-k2::deepinfra",
-    label: "OpenRouter prefill · Kimi K2 · DeepInfra",
+    id: "moonshotai/kimi-k2",
+    label: "OpenRouter prefill · Kimi K2",
     shortName: "K2",
     backend: "openrouter-prefill",
-    apiModel: "moonshotai/kimi-k2::deepinfra",
-    providerOnly: "deepinfra",
+    apiModel: "moonshotai/kimi-k2",
   },
   {
     id: "anthropic/claude-opus-4.5",
@@ -75,12 +73,17 @@ export function normalizeModelPriority(
   const validIds = new Set(DEFAULT_MODEL_PRIORITY);
   const normalized: string[] = [];
   const append = (candidate: unknown): void => {
-    if (
+    const canonicalCandidate =
       typeof candidate === "string" &&
-      validIds.has(candidate) &&
-      !normalized.includes(candidate)
+      candidate.startsWith("moonshotai/kimi-k2::")
+        ? "moonshotai/kimi-k2"
+        : candidate;
+    if (
+      typeof canonicalCandidate === "string" &&
+      validIds.has(canonicalCandidate) &&
+      !normalized.includes(canonicalCandidate)
     ) {
-      normalized.push(candidate);
+      normalized.push(canonicalCandidate);
     }
   };
 
@@ -159,8 +162,6 @@ export interface CompletionRequest {
     stop?: string[];
     messages?: CompletionMessage[];
     provider?: {
-      only?: string[];
-      allow_fallbacks?: boolean;
       sort?: "latency";
     };
   };
@@ -409,14 +410,9 @@ export function buildCompletionRequest(
     };
   }
 
-  const provider = model.providerOnly
-    ? {
-        only: [model.providerOnly],
-        allow_fallbacks: false,
-      }
-    : options.routeByLatency
-      ? { sort: "latency" as const }
-      : undefined;
+  const provider = options.routeByLatency
+    ? { sort: "latency" as const }
+    : undefined;
 
   return {
     url: "https://openrouter.ai/api/v1/chat/completions",

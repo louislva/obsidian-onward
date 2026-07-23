@@ -142,7 +142,7 @@ new or omitted curated models are appended so the ranking remains complete.
 
 ### OpenRouter assistant continuation
 
-- `moonshotai/kimi-k2::deepinfra` (`K2`)
+- `moonshotai/kimi-k2` (`K2`)
 - `anthropic/claude-opus-4.5` (`Opus 4.5`)
 - `anthropic/claude-opus-4.6` (`Opus 4.6`)
 - Endpoint: `https://openrouter.ai/api/v1/chat/completions`
@@ -154,10 +154,6 @@ new or omitted curated models are appended so the ranking remains complete.
 - Opus 4.6 rejects conversations ending with an assistant message. Its supported
   approximation is an assistant-history message followed by a terse user turn
   asking it to continue that exact text. Keep this labeled as emulated prefill.
-- The Kimi choice must remain locked to provider `deepinfra` with
-  `allow_fallbacks: false`. At the last live check, OpenRouter offered this
-  checkpoint only through Novita, so the locked route returned a clear 404.
-  Do not silently loosen the lock: Louis explicitly requested DeepInfra.
 
 ## Keys and privacy
 

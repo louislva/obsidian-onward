@@ -1050,12 +1050,20 @@ export default class InlineCompletePlugin extends Plugin {
     const saved = (await this.loadData()) as
       | (Partial<InlineCompleteSettings> & { model?: unknown })
       | null;
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, saved ?? {});
-    this.settings.modelPriority = normalizeModelPriority(
+    const normalizedPriority = normalizeModelPriority(
       saved?.modelPriority,
       saved?.model,
     );
+    const shouldPersistMigration =
+      JSON.stringify(saved?.modelPriority ?? null) !==
+        JSON.stringify(normalizedPriority) ||
+      saved?.model !== undefined;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, saved ?? {});
+    this.settings.modelPriority = normalizedPriority;
     delete (this.settings as InlineCompleteSettings & { model?: unknown }).model;
+    if (shouldPersistMigration) {
+      await this.saveData(this.settings);
+    }
   }
 
   async saveSettings(): Promise<void> {
@@ -1172,11 +1180,6 @@ class InlineCompleteSettingTab extends PluginSettingTab {
       modelSetting.settingEl.addClass("onward-model-rank");
     });
 
-    containerEl.createEl("p", {
-      cls: "onward-settings-note",
-      text: "K2 remains locked to DeepInfra with OpenRouter provider fallback disabled. The plugin-level ranking handles fallback to a different model explicitly.",
-    });
-
     new Setting(containerEl)
       .setName("Pause before showing")
       .setDesc(
@@ -1243,9 +1246,7 @@ class InlineCompleteSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Prefer lowest latency")
-      .setDesc(
-        "Ask OpenRouter to prefer its lowest-latency provider. Ignored when a model is locked to a specific provider.",
-      )
+      .setDesc("Ask OpenRouter to prefer its lowest-latency provider.")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.routeByLatency)

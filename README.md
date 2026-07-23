@@ -51,8 +51,7 @@ causal transcript.
 Available models:
 
 - Tinker: Qwen3.5 35B-A3B Base and Qwen3.5 9B Base
-- OpenRouter prefill: Kimi K2 locked to DeepInfra, Claude Opus 4.5, and Claude
-  Opus 4.6
+- OpenRouter prefill: Kimi K2, Claude Opus 4.5, and Claude Opus 4.6
 
 Claude Opus 4.6 rejects native assistant-message prefill. For that model, the
 plugin uses the nearest supported equivalent: the document prefix is an
@@ -83,10 +82,6 @@ shown`, plus `missing key` and `error` when a request cannot run. Hover it to
 see fallback and cooldown details. Click the status item to inspect the exact
 last model-facing prompt. Raw models show the causal transcript unchanged;
 chat models show the complete message array as formatted JSON.
-
-The Kimi K2 option uses the requested `moonshotai/kimi-k2::deepinfra` identifier
-and additionally locks OpenRouter routing to `deepinfra`, with provider fallback
-disabled. This prevents OpenRouter from silently substituting a different host.
 
 ## Development
 

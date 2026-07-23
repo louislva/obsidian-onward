@@ -223,9 +223,9 @@ describe("completion request context", () => {
     expect(request.body.messages).toBeUndefined();
   });
 
-  it("builds a literal assistant-prefill request locked to DeepInfra", () => {
+  it("builds a literal K2 assistant-prefill request", () => {
     const request = buildCompletionRequest(
-      getCompletionModel("moonshotai/kimi-k2::deepinfra"),
+      getCompletionModel("moonshotai/kimi-k2"),
       snapshot,
       { maxTokens: 48, temperature: 0.1, routeByLatency: true },
     );
@@ -233,15 +233,12 @@ describe("completion request context", () => {
     expect(request.url).toBe(
       "https://openrouter.ai/api/v1/chat/completions",
     );
-    expect(request.body.model).toBe("moonshotai/kimi-k2::deepinfra");
+    expect(request.body.model).toBe("moonshotai/kimi-k2");
     expect(request.body.messages?.at(-1)).toEqual({
       role: "assistant",
       content: "The cat",
     });
-    expect(request.body.provider).toEqual({
-      only: ["deepinfra"],
-      allow_fallbacks: false,
-    });
+    expect(request.body.provider).toEqual({ sort: "latency" });
     expect(request.body.stop).toBeUndefined();
   });
 
@@ -281,7 +278,7 @@ describe("completion request context", () => {
       { maxTokens: 48, temperature: 0.1, routeByLatency: true },
     );
     const chatRequest = buildCompletionRequest(
-      getCompletionModel("moonshotai/kimi-k2::deepinfra"),
+      getCompletionModel("moonshotai/kimi-k2"),
       snapshot,
       { maxTokens: 48, temperature: 0.1, routeByLatency: true },
     );
@@ -353,6 +350,19 @@ describe("model fallback configuration", () => {
     expect(priority[0]).toBe("anthropic/claude-opus-4.5");
     expect(priority).toHaveLength(DEFAULT_MODEL_PRIORITY.length);
     expect(new Set(priority).size).toBe(DEFAULT_MODEL_PRIORITY.length);
+  });
+
+  it("keeps K2's rank when normalizing a provider-qualified model ID", () => {
+    const priority = normalizeModelPriority([
+      "moonshotai/kimi-k2::provider-route",
+      "Qwen/Qwen3.5-9B-Base",
+    ]);
+
+    expect(priority.slice(0, 2)).toEqual([
+      "moonshotai/kimi-k2",
+      "Qwen/Qwen3.5-9B-Base",
+    ]);
+    expect(priority).toHaveLength(DEFAULT_MODEL_PRIORITY.length);
   });
 
   it("keeps saved order, removes duplicates, and appends new models", () => {
