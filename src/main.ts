@@ -21,6 +21,7 @@ import {
   Plugin,
   PluginSettingTab,
   Setting,
+  requestUrl,
 } from "obsidian";
 import {
   DEFAULT_PROMPT_CONTEXT_OPTIONS,
@@ -444,36 +445,55 @@ class CompletionController {
               this.plugin.settings.lineContextEnabled,
           });
           this.plugin.rememberPrompt(model, request);
-          const response = await fetch(request.url, {
-            method: "POST",
-            signal: controller.signal,
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              "Content-Type": "application/json",
-              ...(!isTinker
-                ? {
-                    "HTTP-Referer": "https://obsidian.md",
-                    "X-Title": "Obsidian Onward",
-                  }
-                : {}),
-            },
-            body: JSON.stringify(request.body),
-          });
-
           let payload: CompletionResponse;
-          try {
-            payload = (await response.json()) as CompletionResponse;
-          } catch {
-            throw new Error(
-              `${isTinker ? "Tinker" : "OpenRouter"} returned an invalid response`,
-            );
+          let responseOk: boolean;
+          let responseStatus: number;
+
+          if (isTinker) {
+            const response = await requestUrl({
+              url: request.url,
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(request.body),
+              throw: false,
+            });
+            responseStatus = response.status;
+            responseOk = response.status >= 200 && response.status < 300;
+            try {
+              payload = response.json as CompletionResponse;
+            } catch {
+              throw new Error("Tinker returned an invalid response");
+            }
+          } else {
+            const response = await fetch(request.url, {
+              method: "POST",
+              signal: controller.signal,
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://obsidian.md",
+                "X-Title": "Obsidian Onward",
+              },
+              body: JSON.stringify(request.body),
+            });
+            responseStatus = response.status;
+            responseOk = response.ok;
+            try {
+              payload = (await response.json()) as CompletionResponse;
+            } catch {
+              throw new Error("OpenRouter returned an invalid response");
+            }
           }
-          if (!response.ok) {
+
+          if (!responseOk) {
             const service = isTinker ? "Tinker" : "OpenRouter";
             throw new Error(
               payload.error?.message ??
                 payload.detail ??
-                `${service} returned ${response.status}`,
+                `${service} returned ${responseStatus}`,
             );
           }
 

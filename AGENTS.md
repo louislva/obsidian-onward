@@ -124,6 +124,9 @@ new or omitted curated models are appended so the ranking remains complete.
 - `Qwen/Qwen3.5-9B-Base` (`Qwen 9B`)
 - Endpoint:
   `https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1/completions`
+- Send Tinker requests with Obsidian's `requestUrl`, not browser `fetch`.
+  Tinker's endpoint does not allow the `app://obsidian.md` origin, so Chromium
+  blocks direct plugin fetches during the CORS preflight.
 - Tinker's HTTP endpoint currently accepts the public base-model ID directly,
   despite documentation emphasizing `tinker://` sampler checkpoint paths.
 - The raw prompt is one flattened `user:`/`assistant:` retrieval transcript:
