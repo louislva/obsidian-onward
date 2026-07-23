@@ -11,6 +11,7 @@ export interface PromptContext {
   discovered: number;
   omitted: number;
   timedOut: number;
+  journalCount: number;
 }
 
 export interface DiscoveredReference {
@@ -142,6 +143,41 @@ export function promptResourceCommand(resource: PromptResource): string {
   return resource.kind === "web"
     ? `web.read --format=markdown ${JSON.stringify(resource.target)}`
     : `vault.read ${JSON.stringify(resource.target)}`;
+}
+
+function localDatePathSegment(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function recentJournalPaths(
+  folder: string,
+  now: Date,
+  activePath?: string,
+): string[] {
+  const normalizedFolder = folder
+    .trim()
+    .replace(/^\/+|\/+$/gu, "");
+  if (!normalizedFolder) return [];
+
+  const today = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  );
+  const yesterday = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate() - 1,
+  );
+  return [yesterday, today]
+    .map(
+      (date) =>
+        `${normalizedFolder}/${localDatePathSegment(date)}.md`,
+    )
+    .filter((path) => path !== activePath);
 }
 
 export function normalizePromptResourceContent(

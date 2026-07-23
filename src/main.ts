@@ -54,6 +54,8 @@ interface InlineCompleteSettings {
   routeByLatency: boolean;
   linkedContextEnabled: boolean;
   linkedContextMaxCharacters: number;
+  recentJournalContextEnabled: boolean;
+  dailyJournalFolder: string;
 }
 
 const DEFAULT_SETTINGS: InlineCompleteSettings = {
@@ -69,6 +71,9 @@ const DEFAULT_SETTINGS: InlineCompleteSettings = {
   linkedContextEnabled: true,
   linkedContextMaxCharacters:
     DEFAULT_PROMPT_CONTEXT_OPTIONS.maxTotalCharacters,
+  recentJournalContextEnabled: true,
+  dailyJournalFolder:
+    DEFAULT_PROMPT_CONTEXT_OPTIONS.journalFolder,
 };
 
 interface GhostText {
@@ -345,6 +350,10 @@ class CompletionController {
             ...DEFAULT_PROMPT_CONTEXT_OPTIONS,
             maxTotalCharacters:
               this.plugin.settings.linkedContextMaxCharacters,
+            includeRecentJournals:
+              this.plugin.settings.recentJournalContextEnabled,
+            journalFolder:
+              this.plugin.settings.dailyJournalFolder,
           },
         );
         if (
@@ -363,9 +372,20 @@ class CompletionController {
         return;
       }
 
+      const linkedResourceCount = promptContext
+        ? promptContext.resources.length - promptContext.journalCount
+        : 0;
       const contextDetail = promptContext
         ? [
-            `${promptContext.resources.length} linked resource${promptContext.resources.length === 1 ? "" : "s"} loaded`,
+            promptContext.journalCount > 0
+              ? `${promptContext.journalCount} recent journal${promptContext.journalCount === 1 ? "" : "s"} loaded`
+              : "",
+            linkedResourceCount > 0
+              ? `${linkedResourceCount} linked resource${linkedResourceCount === 1 ? "" : "s"} loaded`
+              : "",
+            promptContext.resources.length === 0
+              ? "No supporting resources loaded"
+              : "",
             promptContext.omitted > 0
               ? `${promptContext.omitted} omitted`
               : "",
@@ -768,6 +788,20 @@ export default class InlineCompletePlugin extends Plugin {
     for (const controller of this.liveControllers) controller.refresh();
   }
 
+  async setRecentJournalContextEnabled(
+    enabled: boolean,
+  ): Promise<void> {
+    this.settings.recentJournalContextEnabled = enabled;
+    await this.saveSettings();
+    this.setStatus(
+      "idle",
+      enabled
+        ? "Recent journal context enabled"
+        : "Recent journal context disabled",
+    );
+    for (const controller of this.liveControllers) controller.refresh();
+  }
+
   async moveModel(modelId: string, direction: -1 | 1): Promise<void> {
     const index = this.settings.modelPriority.indexOf(modelId);
     const nextIndex = index + direction;
@@ -1097,15 +1131,46 @@ class InlineCompleteSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Read linked context")
+      .setName("Read supporting context")
       .setDesc(
-        "Include referenced vault files and readable versions of linked webpages in completion prompts. Web content is cached for 15 minutes.",
+        "Include recent journals, referenced vault files, and readable versions of linked webpages in completion prompts. Web content is cached for 15 minutes.",
       )
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.linkedContextEnabled)
           .onChange(async (value) => {
             await this.plugin.setLinkedContextEnabled(value);
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Include recent journals")
+      .setDesc(
+        "Read yesterday's and today's daily notes when they exist, oldest first. The active file is always excluded.",
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(
+            this.plugin.settings.recentJournalContextEnabled,
+          )
+          .onChange(async (value) => {
+            await this.plugin.setRecentJournalContextEnabled(value);
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Daily journal folder")
+      .setDesc(
+        "Vault-relative folder containing YYYY-MM-DD.md daily notes. Default: Journal.",
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("Journal")
+          .setValue(this.plugin.settings.dailyJournalFolder)
+          .onChange(async (value) => {
+            this.plugin.settings.dailyJournalFolder =
+              value.trim();
+            await this.plugin.saveSettings();
           }),
       );
 

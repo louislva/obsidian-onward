@@ -13,6 +13,26 @@ The prompt does not ask the model to summarize, answer a question, or invent a
 completion in a separate response. It ends inside the active document so the
 completion remains a literal prefill.
 
+## Recent journal context
+
+Before explicit references, the builder looks for yesterday's and today's
+daily notes using the device's local calendar date. The default paths are:
+
+```text
+Journal/YYYY-MM-DD.md
+```
+
+The folder is configurable. Only files that actually exist are included, in
+chronological order: yesterday, then today. If either journal is the active
+file, that file is excluded while the other recent journal may still be
+included. This prevents duplicating the active prefill while preserving the
+useful task and scratch-note continuity between adjacent days.
+
+Recent journals share the total linked-context character budget, but do not
+consume the eight slots reserved for explicit references. They appear before
+explicit links so the more specifically related linked material remains closer
+to the active-file prefill.
+
 ## Reference discovery
 
 The current editor buffer is scanned for:
@@ -50,7 +70,7 @@ keystroke. Ghost text still cannot appear before the configured reveal time.
 
 The current limits are:
 
-- eight direct resources;
+- up to two recent journal files plus eight direct resources;
 - 12,000 characters per resource;
 - 48,000 linked-context characters in total by default;
 - two million downloaded HTML characters before extraction.
@@ -62,6 +82,9 @@ The total character budget is configurable from 1,000 through 96,000.
 Each resource becomes an actual role pair:
 
 ```text
+user: vault.read "Journal/2026-07-22.md"
+assistant: Yesterday's journal contents...
+
 user: web.read --format=markdown "https://example.com/article"
 assistant: # Extracted article title
 
@@ -88,6 +111,10 @@ Raw Tinker models receive the same sequence flattened into one causal
 transcript:
 
 ```text
+user: vault.read "Journal/2026-07-22.md"
+
+assistant: Yesterday's journal contents...
+
 user: web.read --format=markdown "https://example.com/article"
 
 assistant: # Extracted article title
@@ -111,8 +138,9 @@ a model circuit and do not block completion generation; the prompt simply
 contains the resources available within the latency and size budgets.
 
 If model fallback occurs, every attempted provider receives the same built
-prompt, including retrieved local and web context. Disabling **Read linked
-context** restores active-file-only prompts.
+prompt, including retrieved journal, local, and web context. Disabling **Read
+supporting context** restores active-file-only prompts. Recent journals also
+have a separate toggle.
 
 ## Known limits
 

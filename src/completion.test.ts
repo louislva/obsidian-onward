@@ -71,6 +71,7 @@ describe("completion request context", () => {
       discovered: 2,
       omitted: 0,
       timedOut: 0,
+      journalCount: 0,
     };
     const withPath = {
       ...snapshot,

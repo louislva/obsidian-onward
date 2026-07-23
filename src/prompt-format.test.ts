@@ -3,6 +3,7 @@ import {
   discoverPromptReferences,
   normalizePromptResourceContent,
   promptResourceCommand,
+  recentJournalPaths,
 } from "./prompt-format";
 
 describe("prompt reference discovery", () => {
@@ -78,5 +79,57 @@ describe("prompt resource formatting", () => {
     expect(result).not.toContain("\r");
     expect(result).toContain("[content truncated]");
     expect(result.length).toBeLessThanOrEqual(48);
+  });
+});
+
+describe("recent journal paths", () => {
+  it("returns yesterday then today using local calendar dates", () => {
+    expect(
+      recentJournalPaths(
+        "/Journey/",
+        new Date(2026, 6, 23, 12, 0, 0),
+      ),
+    ).toEqual([
+      "Journey/2026-07-22.md",
+      "Journey/2026-07-23.md",
+    ]);
+  });
+
+  it("crosses month and year boundaries without UTC drift", () => {
+    expect(
+      recentJournalPaths(
+        "Journey",
+        new Date(2026, 0, 1, 0, 15, 0),
+      ),
+    ).toEqual([
+      "Journey/2025-12-31.md",
+      "Journey/2026-01-01.md",
+    ]);
+  });
+
+  it("excludes today's journal when it is the active file", () => {
+    expect(
+      recentJournalPaths(
+        "Journey",
+        new Date(2026, 6, 23, 12, 0, 0),
+        "Journey/2026-07-23.md",
+      ),
+    ).toEqual(["Journey/2026-07-22.md"]);
+  });
+
+  it("excludes yesterday's journal when it is the active file", () => {
+    expect(
+      recentJournalPaths(
+        "Journey",
+        new Date(2026, 6, 23, 12, 0, 0),
+        "Journey/2026-07-22.md",
+      ),
+    ).toEqual(["Journey/2026-07-23.md"]);
+  });
+
+  it("allows recent-journal context to be disabled with an empty folder", () => {
+    expect(
+      recentJournalPaths("  ", new Date(2026, 6, 23)),
+    ).toEqual([]);
   });
 });

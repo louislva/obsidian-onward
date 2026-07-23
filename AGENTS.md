@@ -62,9 +62,9 @@ plugin. Treat this file as the project handoff for future agents.
 ## Current behavior
 
 - Branch note: `prompt-builder` is intentionally not installed. It resolves
-  direct web and vault links into a synthetic retrieval transcript before the
-  active-file prefill. Read `docs/prompt-builder.md` before changing or merging
-  it.
+  yesterday's and today's journals plus direct web and vault links into a
+  synthetic retrieval transcript before the active-file prefill. Read
+  `docs/prompt-builder.md` before changing or merging it.
 - Suggestions appear as gray ghost text at the cursor.
 - `Tab` accepts; `Escape` dismisses until the document changes.
 - Requests are prefetched during the pause but are not revealed before the
@@ -93,8 +93,13 @@ plugin. Treat this file as the project handoff for future agents.
 - On `prompt-builder`, web context uses Obsidian `requestUrl`, Mozilla
   Readability, and `htmlToMarkdown`; web results are cached for 15 minutes.
   Retrieval is non-recursive and bounded to eight resources, 12,000 characters
-  each, and 48,000 total by default. Context failures are omissions, not model
-  failures, and must never open a model circuit.
+  each, plus up to two recent journal notes; all share a 48,000-character total
+  budget by default. Context failures are omissions, not model failures, and
+  must never open a model circuit.
+- Recent journal context defaults to `Journal/YYYY-MM-DD.md` using the device's
+  local date. Load yesterday before today, only when files exist, and exclude
+  the active file if it is either journal. The folder and journal toggle are
+  user settings.
 - The prompt builder masks fenced and inline code before link discovery. Chat
   models receive actual command/response role pairs. Base models receive the
   same pairs flattened into one transcript. Both forms must end inside the
@@ -148,7 +153,8 @@ new or omitted curated models are appended so the ranking remains complete.
 - It is safe to inspect boolean key presence when diagnosing configuration.
 - The selected service receives note content on each completion request. On
   `prompt-builder`, it also receives the successfully retrieved contents of
-  direct vault and web links; fallback services may receive the same context.
+  recent journals plus direct vault and web links; fallback services may
+  receive the same context.
 
 ## Useful current facts
 

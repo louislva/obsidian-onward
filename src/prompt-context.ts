@@ -8,6 +8,7 @@ import {
 import {
   discoverPromptReferences,
   normalizePromptResourceContent,
+  recentJournalPaths,
   type PromptContext,
   type PromptResource,
 } from "./prompt-format";
@@ -17,11 +18,15 @@ export interface PromptContextOptions {
   maxCharactersPerResource: number;
   maxTotalCharacters: number;
   webWaitMs: number;
+  includeRecentJournals: boolean;
+  journalFolder: string;
+  now?: Date;
 }
 
 interface LoadedReference {
   resource: PromptResource | null;
   timedOut: boolean;
+  journal: boolean;
 }
 
 interface WebCacheEntry {
@@ -38,6 +43,8 @@ export const DEFAULT_PROMPT_CONTEXT_OPTIONS: PromptContextOptions = {
   maxCharactersPerResource: 12_000,
   maxTotalCharacters: 48_000,
   webWaitMs: 1_200,
+  includeRecentJournals: true,
+  journalFolder: "Journal",
 };
 
 function headerValue(
@@ -104,13 +111,35 @@ export class PromptContextLoader {
   ): Promise<PromptContext> {
     const discovered = discoverPromptReferences(markdown);
     const selected = discovered.slice(0, options.maxResources);
-    const loaded = await Promise.all(
-      selected.map((reference) =>
-        reference.kind === "web"
-          ? this.loadWebReference(reference.target, options.webWaitMs)
-          : this.loadFileReference(reference.target, sourceFile, signal),
+    const journalPaths = options.includeRecentJournals
+      ? recentJournalPaths(
+          options.journalFolder,
+          options.now ?? new Date(),
+          sourceFile?.path,
+        )
+      : [];
+    const [loadedJournals, loadedReferences] = await Promise.all([
+      Promise.all(
+        journalPaths.map((path) =>
+          this.loadJournalReference(path, sourceFile, signal),
+        ),
       ),
-    );
+      Promise.all(
+        selected.map((reference) =>
+          reference.kind === "web"
+            ? this.loadWebReference(
+                reference.target,
+                options.webWaitMs,
+              )
+            : this.loadFileReference(
+                reference.target,
+                sourceFile,
+                signal,
+              ),
+        ),
+      ),
+    ]);
+    const loaded = [...loadedJournals, ...loadedReferences];
 
     if (signal.aborted) {
       return {
@@ -118,6 +147,7 @@ export class PromptContextLoader {
         discovered: discovered.length,
         omitted: discovered.length,
         timedOut: 0,
+        journalCount: 0,
       };
     }
 
@@ -126,7 +156,8 @@ export class PromptContextLoader {
     let remainingCharacters = options.maxTotalCharacters;
     let omitted =
       Math.max(0, discovered.length - selected.length) +
-      loaded.filter((result) => !result.resource).length;
+      loadedReferences.filter((result) => !result.resource).length;
+    let journalCount = 0;
 
     for (const result of loaded) {
       if (!result.resource) continue;
@@ -154,6 +185,7 @@ export class PromptContextLoader {
         continue;
       }
       resources.push({ ...result.resource, content });
+      if (result.journal) journalCount += 1;
       remainingCharacters -= content.length;
     }
 
@@ -162,7 +194,23 @@ export class PromptContextLoader {
       discovered: discovered.length,
       omitted,
       timedOut: loaded.filter((result) => result.timedOut).length,
+      journalCount,
     };
+  }
+
+  private async loadJournalReference(
+    path: string,
+    sourceFile: TFile | null,
+    signal: AbortSignal,
+  ): Promise<LoadedReference> {
+    if (!sourceFile || path === sourceFile.path || signal.aborted) {
+      return { resource: null, timedOut: false, journal: true };
+    }
+    const file = this.app.vault.getFileByPath(path);
+    if (!file) {
+      return { resource: null, timedOut: false, journal: true };
+    }
+    return this.readVaultFile(file, signal, true);
   }
 
   private async loadFileReference(
@@ -171,7 +219,7 @@ export class PromptContextLoader {
     signal: AbortSignal,
   ): Promise<LoadedReference> {
     if (!sourceFile || signal.aborted) {
-      return { resource: null, timedOut: false };
+      return { resource: null, timedOut: false, journal: false };
     }
 
     const file = this.app.metadataCache.getFirstLinkpathDest(
@@ -179,13 +227,21 @@ export class PromptContextLoader {
       sourceFile.path,
     );
     if (!file || file.path === sourceFile.path) {
-      return { resource: null, timedOut: false };
+      return { resource: null, timedOut: false, journal: false };
     }
 
+    return this.readVaultFile(file, signal, false);
+  }
+
+  private async readVaultFile(
+    file: TFile,
+    signal: AbortSignal,
+    journal: boolean,
+  ): Promise<LoadedReference> {
     try {
       const content = await this.app.vault.cachedRead(file);
       if (signal.aborted || content.includes("\0")) {
-        return { resource: null, timedOut: false };
+        return { resource: null, timedOut: false, journal };
       }
       return {
         resource: {
@@ -194,9 +250,10 @@ export class PromptContextLoader {
           content,
         },
         timedOut: false,
+        journal,
       };
     } catch {
-      return { resource: null, timedOut: false };
+      return { resource: null, timedOut: false, journal };
     }
   }
 
@@ -213,7 +270,7 @@ export class PromptContextLoader {
     if (timer !== undefined) clearTimeout(timer);
 
     if (result === "timeout") {
-      return { resource: null, timedOut: true };
+      return { resource: null, timedOut: true, journal: false };
     }
     return {
       resource:
@@ -221,6 +278,7 @@ export class PromptContextLoader {
           ? null
           : { kind: "web", target: url, content: result },
       timedOut: false,
+      journal: false,
     };
   }
 
