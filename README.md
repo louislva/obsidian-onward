@@ -7,6 +7,7 @@ Copilot-style sentence continuation for Obsidian:
 - supports literal next-token completion with Tinker's Qwen3.5 base models;
 - supports assistant-prefill completion with selected OpenRouter chat models;
 - shows the continuation as gray ghost text;
+- reports the current model and request state in Obsidian's status bar;
 - accepts with **Tab** and dismisses with **Escape**;
 - cancels stale requests as soon as typing resumes.
 
@@ -37,6 +38,13 @@ variables often are not inherited; in that case, paste the relevant key into
 
 API keys are never logged. The selected service receives note content whenever
 a completion request starts.
+
+## Status indicator
+
+The bottom-right status item uses short model names such as `Qwen 35B`, `K2`,
+and `Opus 4.5`. It reports `waiting`, `generating`, `generated · shown`, or
+`generated · not shown`, plus `missing key` and `error` when a request cannot
+run. Hover it to see the full model name and a more specific explanation.
 
 The Kimi K2 option uses the requested `moonshotai/kimi-k2::deepinfra` identifier
 and additionally locks OpenRouter routing to `deepinfra`, with provider fallback

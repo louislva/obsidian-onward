@@ -70,6 +70,25 @@ interface CompletionResponse {
   detail?: string;
 }
 
+type CompletionStatus =
+  | "idle"
+  | "waiting"
+  | "generating"
+  | "hidden"
+  | "shown"
+  | "missing-key"
+  | "error";
+
+const STATUS_LABELS: Record<CompletionStatus, string> = {
+  idle: "idle",
+  waiting: "waiting",
+  generating: "generating",
+  hidden: "generated · not shown",
+  shown: "generated · shown",
+  "missing-key": "missing key",
+  error: "error",
+};
+
 const setGhostText = StateEffect.define<GhostText | null>();
 
 class GhostTextWidget extends WidgetType {
@@ -150,7 +169,10 @@ class CompletionController {
 
     if (update.focusChanged) {
       if (this.view.hasFocus) this.schedule();
-      else this.cancel(true);
+      else {
+        this.cancel(true);
+        this.plugin.setStatus("idle", "Editor is not focused");
+      }
     }
   }
 
@@ -177,8 +199,13 @@ class CompletionController {
       return false;
     }
 
+    const hadSuggestion = this.suggestion !== null;
     this.dismissedUntilChange = true;
     this.cancel(true);
+    this.plugin.setStatus(
+      hadSuggestion ? "hidden" : "idle",
+      hadSuggestion ? "Suggestion dismissed" : "Completion cancelled",
+    );
     return true;
   }
 
@@ -205,8 +232,14 @@ class CompletionController {
   }
 
   private schedule(): void {
-    if (!this.eligible()) return;
+    if (!this.eligible()) {
+      if (this.view.hasFocus) {
+        this.plugin.setStatus("idle", "Completions are not currently scheduled");
+      }
+      return;
+    }
 
+    this.plugin.setStatus("waiting", "Waiting for the writing pause");
     this.revealAt = Date.now() + this.plugin.settings.pauseDelayMs;
     const delay = requestStartDelay(
       this.plugin.settings.pauseDelayMs,
@@ -239,6 +272,7 @@ class CompletionController {
     const generation = ++this.generation;
     const controller = new AbortController();
     this.abortController = controller;
+    this.plugin.setStatus("generating", `Requesting ${model.label}`);
 
     try {
       const isTinker = model.backend === "tinker";
@@ -273,11 +307,14 @@ class CompletionController {
         );
       }
 
-      if (
-        controller.signal.aborted ||
-        generation !== this.generation ||
-        !this.snapshotStillCurrent(snapshot)
-      ) {
+      if (controller.signal.aborted || generation !== this.generation) {
+        return;
+      }
+      if (!this.snapshotStillCurrent(snapshot)) {
+        this.plugin.setStatus(
+          "hidden",
+          "A completion arrived after the document changed",
+        );
         return;
       }
 
@@ -286,24 +323,43 @@ class CompletionController {
         payload.choices?.[0]?.text ??
         "";
       const text = sanitizeCompletion(raw, snapshot);
-      if (!text) return;
+      if (!text) {
+        this.plugin.setStatus(
+          "hidden",
+          raw
+            ? "The generated text was filtered as empty, duplicated, or meta commentary"
+            : "The model returned no completion text",
+        );
+        return;
+      }
 
       const show = (): void => {
-        if (
-          generation !== this.generation ||
-          !this.eligible() ||
-          !this.snapshotStillCurrent(snapshot)
-        ) {
+        if (generation !== this.generation || controller.signal.aborted) {
+          return;
+        }
+        if (!this.eligible() || !this.snapshotStillCurrent(snapshot)) {
+          this.plugin.setStatus(
+            "hidden",
+            "A valid completion was generated but was no longer eligible to display",
+          );
           return;
         }
         this.suggestion = { pos: snapshot.cursor, text };
         this.view.dispatch({
           effects: setGhostText.of(this.suggestion),
         });
+        this.plugin.setStatus(
+          "shown",
+          `Showing ${text.length} generated characters`,
+        );
       };
 
       const remaining = this.revealAt - Date.now();
       if (remaining > 0) {
+        this.plugin.setStatus(
+          "waiting",
+          "Completion generated; waiting for the reveal time",
+        );
         this.revealTimer = window.setTimeout(() => {
           this.revealTimer = null;
           show();
@@ -356,9 +412,13 @@ export default class InlineCompletePlugin extends Plugin {
   private missingKeyNotified = false;
   private lastError = "";
   private lastErrorAt = 0;
+  private statusBarItem: HTMLElement | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
+    this.statusBarItem = this.addStatusBarItem();
+    this.statusBarItem.addClass("inline-complete-status");
+    this.setStatus("idle", "Ready");
 
     const controllerExtension = ViewPlugin.define((view) => {
       const controller = new CompletionController(view, this);
@@ -414,6 +474,23 @@ export default class InlineCompletePlugin extends Plugin {
     return getCompletionModel(this.settings.model);
   }
 
+  setStatus(status: CompletionStatus, detail?: string): void {
+    if (!this.statusBarItem) return;
+
+    const model = this.getSelectedModel();
+    this.statusBarItem.textContent =
+      `${model.shortName} · ${STATUS_LABELS[status]}`;
+    this.statusBarItem.dataset.state = status;
+    this.statusBarItem.setAttribute(
+      "aria-label",
+      `Inline Complete: ${model.shortName}, ${STATUS_LABELS[status]}`,
+    );
+    this.statusBarItem.setAttribute(
+      "title",
+      [model.label, detail].filter(Boolean).join("\n"),
+    );
+  }
+
   getApiKey(backend: CompletionBackend): string {
     if (backend === "tinker") {
       const environmentKey =
@@ -437,21 +514,27 @@ export default class InlineCompletePlugin extends Plugin {
   async setEnabled(enabled: boolean): Promise<void> {
     this.settings.enabled = enabled;
     await this.saveSettings();
+    this.setStatus("idle", enabled ? "Ready" : "Disabled");
     for (const controller of this.liveControllers) controller.refresh();
   }
 
   async setModel(model: string): Promise<void> {
     this.settings.model = getCompletionModel(model).id;
     await this.saveSettings();
+    this.setStatus("idle", "Model changed");
     for (const controller of this.liveControllers) controller.refresh();
   }
 
   notifyMissingKey(backend: CompletionBackend): void {
-    if (this.missingKeyNotified) return;
-    this.missingKeyNotified = true;
     const service = backend === "tinker" ? "Tinker" : "OpenRouter";
     const variable =
       backend === "tinker" ? "TINKER_API_KEY" : "OPENROUTER_API_KEY";
+    this.setStatus(
+      "missing-key",
+      `Set ${variable} or save a ${service} key in plugin settings`,
+    );
+    if (this.missingKeyNotified) return;
+    this.missingKeyNotified = true;
     new Notice(
       `Inline Complete needs ${variable} or a ${service} key in its settings.`,
       8000,
@@ -460,6 +543,7 @@ export default class InlineCompletePlugin extends Plugin {
 
   notifyRequestError(error: unknown): void {
     const message = error instanceof Error ? error.message : String(error);
+    this.setStatus("error", message);
     const now = Date.now();
     if (message === this.lastError && now - this.lastErrorAt < 30_000) return;
 

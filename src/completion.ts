@@ -5,6 +5,7 @@ export type CompletionBackend = "tinker" | "openrouter-prefill";
 export interface CompletionModel {
   id: string;
   label: string;
+  shortName: string;
   backend: CompletionBackend;
   apiModel: string;
   providerOnly?: string;
@@ -15,18 +16,21 @@ export const COMPLETION_MODELS: CompletionModel[] = [
   {
     id: "Qwen/Qwen3.5-35B-A3B-Base",
     label: "Tinker · Qwen3.5 35B-A3B Base",
+    shortName: "Qwen 35B",
     backend: "tinker",
     apiModel: "Qwen/Qwen3.5-35B-A3B-Base",
   },
   {
     id: "Qwen/Qwen3.5-9B-Base",
     label: "Tinker · Qwen3.5 9B Base",
+    shortName: "Qwen 9B",
     backend: "tinker",
     apiModel: "Qwen/Qwen3.5-9B-Base",
   },
   {
     id: "moonshotai/kimi-k2::deepinfra",
     label: "OpenRouter prefill · Kimi K2 · DeepInfra",
+    shortName: "K2",
     backend: "openrouter-prefill",
     apiModel: "moonshotai/kimi-k2::deepinfra",
     providerOnly: "deepinfra",
@@ -34,6 +38,7 @@ export const COMPLETION_MODELS: CompletionModel[] = [
   {
     id: "anthropic/claude-opus-4.5",
     label: "OpenRouter prefill · Claude Opus 4.5",
+    shortName: "Opus 4.5",
     backend: "openrouter-prefill",
     apiModel: "anthropic/claude-opus-4.5",
     prefillMode: "native",
@@ -41,6 +46,7 @@ export const COMPLETION_MODELS: CompletionModel[] = [
   {
     id: "anthropic/claude-opus-4.6",
     label: "OpenRouter emulated prefill · Claude Opus 4.6",
+    shortName: "Opus 4.6",
     backend: "openrouter-prefill",
     apiModel: "anthropic/claude-opus-4.6",
     prefillMode: "assistant-history",

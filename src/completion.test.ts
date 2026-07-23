@@ -34,6 +34,7 @@ describe("completion request context", () => {
     const model = getCompletionModel("google/gemini-2.5-flash-lite");
     expect(model.apiModel).toBe("Qwen/Qwen3.5-35B-A3B-Base");
     expect(model.backend).toBe("tinker");
+    expect(model.shortName).toBe("Qwen 35B");
   });
 
   it("builds a raw Tinker completions request", () => {

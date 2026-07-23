@@ -17,3 +17,24 @@
   font-family: var(--font-monospace);
 }
 
+.inline-complete-status {
+  white-space: nowrap;
+}
+
+.inline-complete-status[data-state="generating"],
+.inline-complete-status[data-state="waiting"] {
+  color: var(--text-accent);
+}
+
+.inline-complete-status[data-state="shown"] {
+  color: var(--text-success);
+}
+
+.inline-complete-status[data-state="hidden"] {
+  color: var(--text-muted);
+}
+
+.inline-complete-status[data-state="missing-key"],
+.inline-complete-status[data-state="error"] {
+  color: var(--text-error);
+}
