@@ -52,11 +52,19 @@ plugin. Treat this file as the project handoff for future agents.
 - `src/completion.ts`: model catalogue, request construction, raw and prefill
   context construction, timing helper, and response sanitization.
 - `src/completion.test.ts`: pure request/context/sanitization tests.
+- `src/prompt-format.ts`: pure linked-reference discovery, context
+  normalization, and synthetic command formatting.
+- `src/prompt-context.ts`: Obsidian vault resolution, cached web retrieval,
+  Readability extraction, and context budgets.
 - `styles.css`: gray inline suggestion, settings styling, and status colors.
 - `main.js`: generated production bundle; do not hand-edit it.
 
 ## Current behavior
 
+- Branch note: `prompt-builder` is intentionally not installed. It resolves
+  yesterday's and today's journals plus direct web and vault links into a
+  synthetic retrieval transcript before the active-file prefill. Read
+  `docs/prompt-builder.md` before changing or merging it.
 - Suggestions appear as gray ghost text at the cursor.
 - `Tab` accepts; `Escape` dismisses until the document changes.
 - Requests are prefetched during the pause but are not revealed before the
@@ -81,7 +89,24 @@ plugin. Treat this file as the project handoff for future agents.
   attempt started within 30 seconds after recovery doubles its cooldown, capped
   at 30 minutes. Keep these calculations pure in `completion.ts`.
 - Hovering the status item shows the full model label and a specific reason.
-  Preserve this diagnostic detail when modifying request handling.
+  Clicking it opens the exact last model-facing prompt: raw prompt text for
+  Tinker, or the full messages array as formatted JSON for chat models. The
+  item is keyboard-accessible with Enter/Space. Preserve this diagnostic
+  behavior when modifying request handling.
+- On `prompt-builder`, web context uses Obsidian `requestUrl`, Mozilla
+  Readability, and `htmlToMarkdown`; web results are cached for 15 minutes.
+  Retrieval is non-recursive and bounded to eight resources, 12,000 characters
+  each, plus up to two recent journal notes; all share a 48,000-character total
+  budget by default. Context failures are omissions, not model failures, and
+  must never open a model circuit.
+- Recent journal context defaults to `Journal/YYYY-MM-DD.md` using the device's
+  local date. Load yesterday before today, only when files exist, and exclude
+  the active file if it is either journal. The folder and journal toggle are
+  user settings.
+- The prompt builder masks fenced and inline code before link discovery. Chat
+  models receive actual command/response role pairs. Base models receive the
+  same pairs flattened into one transcript. Both forms must end inside the
+  active file at the cursor, with no trailing completion instruction.
 
 ## Models and API semantics
 
@@ -129,7 +154,10 @@ new or omitted curated models are appended so the ranking remains complete.
   variables, which is why both password fields exist.
 - Never print, log, commit, replace, or expose saved key values.
 - It is safe to inspect boolean key presence when diagnosing configuration.
-- The selected service receives note content on each completion request.
+- The selected service receives note content on each completion request. On
+  `prompt-builder`, it also receives the successfully retrieved contents of
+  recent journals plus direct vault and web links; fallback services may
+  receive the same context.
 
 ## Useful current facts
 

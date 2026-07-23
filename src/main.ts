@@ -16,14 +16,21 @@ import {
 import {
   App,
   MarkdownView,
+  Modal,
   Notice,
   Plugin,
   PluginSettingTab,
   Setting,
 } from "obsidian";
 import {
+  DEFAULT_PROMPT_CONTEXT_OPTIONS,
+  PromptContextLoader,
+} from "./prompt-context";
+import type { PromptContext } from "./prompt-format";
+import {
   buildCompletionRequest,
   DEFAULT_MODEL_PRIORITY,
+  formatCompletionPrompt,
   getCompletionModel,
   nextModelFailureCooldown,
   normalizeModelPriority,
@@ -33,7 +40,9 @@ import {
   shouldClearGhostText,
   type CompletionBackend,
   type CompletionModel,
+  type CompletionRequest,
   type CompletionSnapshot,
+  type FormattedCompletionPrompt,
   type ModelFailureCooldown,
 } from "./completion";
 
@@ -47,6 +56,10 @@ interface InlineCompleteSettings {
   temperature: number;
   enabled: boolean;
   routeByLatency: boolean;
+  linkedContextEnabled: boolean;
+  linkedContextMaxCharacters: number;
+  recentJournalContextEnabled: boolean;
+  dailyJournalFolder: string;
 }
 
 const DEFAULT_SETTINGS: InlineCompleteSettings = {
@@ -59,6 +72,12 @@ const DEFAULT_SETTINGS: InlineCompleteSettings = {
   temperature: 0.15,
   enabled: true,
   routeByLatency: true,
+  linkedContextEnabled: true,
+  linkedContextMaxCharacters:
+    DEFAULT_PROMPT_CONTEXT_OPTIONS.maxTotalCharacters,
+  recentJournalContextEnabled: true,
+  dailyJournalFolder:
+    DEFAULT_PROMPT_CONTEXT_OPTIONS.journalFolder,
 };
 
 interface GhostText {
@@ -85,6 +104,11 @@ interface FailedModelAttempt {
   model: CompletionModel;
   message: string;
   cooldownMs: number;
+}
+
+interface PromptPreview extends FormattedCompletionPrompt {
+  model: CompletionModel;
+  builtAt: number;
 }
 
 type CompletionStatus =
@@ -277,9 +301,12 @@ class CompletionController {
 
     this.plugin.setStatus("waiting", "Waiting for the writing pause");
     this.revealAt = Date.now() + this.plugin.settings.pauseDelayMs;
+    const contextHeadStartMs = this.plugin.settings.linkedContextEnabled
+      ? DEFAULT_PROMPT_CONTEXT_OPTIONS.webWaitMs
+      : 0;
     const delay = requestStartDelay(
       this.plugin.settings.pauseDelayMs,
-      this.plugin.settings.requestHeadStartMs,
+      this.plugin.settings.requestHeadStartMs + contextHeadStartMs,
     );
     this.requestTimer = window.setTimeout(() => {
       this.requestTimer = null;
@@ -299,16 +326,85 @@ class CompletionController {
     const document = this.view.state.doc.toString();
     const cursor = this.view.state.selection.main.head;
     const activeView = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
+    const activeFile =
+      activeView?.file ?? this.plugin.app.workspace.getActiveFile();
     const title =
-      activeView?.file?.basename ??
-      this.plugin.app.workspace.getActiveFile()?.basename ??
+      activeFile?.basename ??
       "Untitled";
-    const snapshot: CompletionSnapshot = { title, document, cursor };
+    const snapshot: CompletionSnapshot = {
+      title,
+      path: activeFile?.path,
+      document,
+      cursor,
+    };
     const generation = ++this.generation;
     const controller = new AbortController();
     this.abortController = controller;
 
     try {
+      let promptContext: PromptContext | undefined;
+      if (
+        this.plugin.settings.linkedContextEnabled &&
+        activeFile
+      ) {
+        this.plugin.setStatus(
+          "generating",
+          "Reading linked notes and webpages for prompt context",
+        );
+        promptContext = await this.plugin.promptContextLoader.load(
+          document,
+          activeFile,
+          controller.signal,
+          {
+            ...DEFAULT_PROMPT_CONTEXT_OPTIONS,
+            maxTotalCharacters:
+              this.plugin.settings.linkedContextMaxCharacters,
+            includeRecentJournals:
+              this.plugin.settings.recentJournalContextEnabled,
+            journalFolder:
+              this.plugin.settings.dailyJournalFolder,
+          },
+        );
+        if (
+          controller.signal.aborted ||
+          generation !== this.generation
+        ) {
+          return;
+        }
+      }
+
+      await this.waitForModelRequestWindow(controller.signal);
+      if (
+        controller.signal.aborted ||
+        generation !== this.generation
+      ) {
+        return;
+      }
+
+      const linkedResourceCount = promptContext
+        ? promptContext.resources.length - promptContext.journalCount
+        : 0;
+      const contextDetail = promptContext
+        ? [
+            promptContext.journalCount > 0
+              ? `${promptContext.journalCount} recent journal${promptContext.journalCount === 1 ? "" : "s"} loaded`
+              : "",
+            linkedResourceCount > 0
+              ? `${linkedResourceCount} linked resource${linkedResourceCount === 1 ? "" : "s"} loaded`
+              : "",
+            promptContext.resources.length === 0
+              ? "No supporting resources loaded"
+              : "",
+            promptContext.omitted > 0
+              ? `${promptContext.omitted} omitted`
+              : "",
+            promptContext.timedOut > 0
+              ? `${promptContext.timedOut} still loading for a later request`
+              : "",
+          ]
+            .filter(Boolean)
+            .join("; ")
+        : "Linked context disabled or unavailable";
       const failures: FailedModelAttempt[] = [];
       let result:
         | {
@@ -329,8 +425,8 @@ class CompletionController {
         this.plugin.setStatus(
           "generating",
           failures.length > 0
-            ? `Trying ${model.label} after ${failures.length} failed fallback attempt${failures.length === 1 ? "" : "s"}`
-            : `Requesting ${model.label}`,
+            ? `Trying ${model.label} after ${failures.length} failed fallback attempt${failures.length === 1 ? "" : "s"}. ${contextDetail}`
+            : `Requesting ${model.label}. ${contextDetail}`,
           model,
         );
         const attemptStartedAt = Date.now();
@@ -341,7 +437,9 @@ class CompletionController {
             maxTokens: this.plugin.settings.maxTokens,
             temperature: this.plugin.settings.temperature,
             routeByLatency: this.plugin.settings.routeByLatency,
+            promptContext,
           });
+          this.plugin.rememberPrompt(model, request);
           const response = await fetch(request.url, {
             method: "POST",
             signal: controller.signal,
@@ -468,6 +566,7 @@ class CompletionController {
             failures.length > 0
               ? `Fallback succeeded after ${failures.map((failure) => failure.model.shortName).join(", ")} failed`
               : "",
+            contextDetail,
           ]
             .filter(Boolean)
             .join(". "),
@@ -510,6 +609,25 @@ class CompletionController {
     );
   }
 
+  private async waitForModelRequestWindow(
+    signal: AbortSignal,
+  ): Promise<void> {
+    const modelRequestAt =
+      this.revealAt - this.plugin.settings.requestHeadStartMs;
+    const remaining = modelRequestAt - Date.now();
+    if (remaining <= 0 || signal.aborted) return;
+
+    await new Promise<void>((resolve) => {
+      const finish = (): void => {
+        window.clearTimeout(timer);
+        signal.removeEventListener("abort", finish);
+        resolve();
+      };
+      const timer = window.setTimeout(finish, remaining);
+      signal.addEventListener("abort", finish, { once: true });
+    });
+  }
+
   private clearGhostAfterUpdate(): void {
     if (this.deferredGhostClearTimer !== null) return;
 
@@ -538,6 +656,54 @@ class CompletionController {
   }
 }
 
+class PromptPreviewModal extends Modal {
+  constructor(
+    app: App,
+    private readonly model: CompletionModel,
+    private readonly preview: PromptPreview | null,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.modalEl.addClass("inline-complete-prompt-modal");
+    this.titleEl.setText("Inline Complete prompt");
+    this.contentEl.empty();
+
+    if (!this.preview) {
+      this.contentEl.createEl("p", {
+        text: `No prompt has been built for ${this.model.label} yet. Wait for a completion request, then click the status item again.`,
+      });
+      return;
+    }
+
+    this.contentEl.createEl("p", {
+      cls: "inline-complete-prompt-meta",
+      text: [
+        this.preview.model.label,
+        this.preview.format,
+        `${this.preview.text.length.toLocaleString()} characters`,
+        new Date(this.preview.builtAt).toLocaleTimeString(),
+      ].join(" · "),
+    });
+    const prompt = this.contentEl.createEl("textarea", {
+      cls: "inline-complete-prompt-text",
+      attr: {
+        "aria-label": `Full prompt sent to ${this.preview.model.label}`,
+        readonly: "true",
+        spellcheck: "false",
+        wrap: "off",
+      },
+    });
+    prompt.value = this.preview.text;
+    prompt.setSelectionRange(0, 0);
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
 export default class InlineCompletePlugin extends Plugin {
   settings: InlineCompleteSettings = DEFAULT_SETTINGS;
   private controllers = new WeakMap<EditorView, CompletionController>();
@@ -547,11 +713,29 @@ export default class InlineCompletePlugin extends Plugin {
   private lastErrorAt = 0;
   private modelCircuits = new Map<string, ModelCircuitState>();
   private statusBarItem: HTMLElement | null = null;
+  private statusModel: CompletionModel | null = null;
+  private promptPreviews = new Map<string, PromptPreview>();
+  promptContextLoader!: PromptContextLoader;
 
   async onload(): Promise<void> {
     await this.loadSettings();
+    this.promptContextLoader = new PromptContextLoader(this.app);
     this.statusBarItem = this.addStatusBarItem();
     this.statusBarItem.addClass("inline-complete-status");
+    this.statusBarItem.setAttribute("role", "button");
+    this.statusBarItem.setAttribute("tabindex", "0");
+    this.registerDomEvent(this.statusBarItem, "click", () => {
+      this.openPromptPreview();
+    });
+    this.registerDomEvent(
+      this.statusBarItem,
+      "keydown",
+      (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        this.openPromptPreview();
+      },
+    );
     this.setStatus("idle", "Ready");
 
     const controllerExtension = ViewPlugin.define((view) => {
@@ -620,6 +804,26 @@ export default class InlineCompletePlugin extends Plugin {
     return this.getEligibleModels()[0] ?? this.getRankedModels()[0];
   }
 
+  rememberPrompt(
+    model: CompletionModel,
+    request: CompletionRequest,
+  ): void {
+    this.promptPreviews.set(model.id, {
+      model,
+      builtAt: Date.now(),
+      ...formatCompletionPrompt(request),
+    });
+  }
+
+  openPromptPreview(): void {
+    const model = this.statusModel ?? this.getPreferredModel();
+    new PromptPreviewModal(
+      this.app,
+      model,
+      this.promptPreviews.get(model.id) ?? null,
+    ).open();
+  }
+
   setStatus(
     status: CompletionStatus,
     detail?: string,
@@ -628,6 +832,7 @@ export default class InlineCompletePlugin extends Plugin {
     if (!this.statusBarItem) return;
 
     const model = statusModel ?? this.getPreferredModel();
+    this.statusModel = model;
     this.statusBarItem.textContent =
       `${model.shortName} · ${STATUS_LABELS[status]}`;
     this.statusBarItem.dataset.state = status;
@@ -637,7 +842,13 @@ export default class InlineCompletePlugin extends Plugin {
     );
     this.statusBarItem.setAttribute(
       "title",
-      [model.label, detail].filter(Boolean).join("\n"),
+      [
+        model.label,
+        detail,
+        "Click to inspect the last full prompt",
+      ]
+        .filter(Boolean)
+        .join("\n"),
     );
   }
 
@@ -665,6 +876,30 @@ export default class InlineCompletePlugin extends Plugin {
     this.settings.enabled = enabled;
     await this.saveSettings();
     this.setStatus("idle", enabled ? "Ready" : "Disabled");
+    for (const controller of this.liveControllers) controller.refresh();
+  }
+
+  async setLinkedContextEnabled(enabled: boolean): Promise<void> {
+    this.settings.linkedContextEnabled = enabled;
+    await this.saveSettings();
+    this.setStatus(
+      "idle",
+      enabled ? "Linked prompt context enabled" : "Linked prompt context disabled",
+    );
+    for (const controller of this.liveControllers) controller.refresh();
+  }
+
+  async setRecentJournalContextEnabled(
+    enabled: boolean,
+  ): Promise<void> {
+    this.settings.recentJournalContextEnabled = enabled;
+    await this.saveSettings();
+    this.setStatus(
+      "idle",
+      enabled
+        ? "Recent journal context enabled"
+        : "Recent journal context disabled",
+    );
     for (const controller of this.liveControllers) controller.refresh();
   }
 
@@ -993,6 +1228,76 @@ class InlineCompleteSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             this.plugin.settings.routeByLatency = value;
             await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Read supporting context")
+      .setDesc(
+        "Include recent journals, referenced vault files, and readable versions of linked webpages in completion prompts. Web content is cached for 15 minutes.",
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.linkedContextEnabled)
+          .onChange(async (value) => {
+            await this.plugin.setLinkedContextEnabled(value);
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Include recent journals")
+      .setDesc(
+        "Read yesterday's and today's daily notes when they exist, oldest first. The active file is always excluded.",
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(
+            this.plugin.settings.recentJournalContextEnabled,
+          )
+          .onChange(async (value) => {
+            await this.plugin.setRecentJournalContextEnabled(value);
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Daily journal folder")
+      .setDesc(
+        "Vault-relative folder containing YYYY-MM-DD.md daily notes. Default: Journal.",
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("Journal")
+          .setValue(this.plugin.settings.dailyJournalFolder)
+          .onChange(async (value) => {
+            this.plugin.settings.dailyJournalFolder =
+              value.trim();
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Maximum linked-context characters")
+      .setDesc(
+        "Total character budget shared by linked resources. Individual resources are capped at 12,000 characters. Default: 48000.",
+      )
+      .addText((text) =>
+        text
+          .setValue(
+            String(this.plugin.settings.linkedContextMaxCharacters),
+          )
+          .onChange(async (value) => {
+            const parsed = Number(value);
+            if (
+              Number.isFinite(parsed) &&
+              parsed >= 1_000 &&
+              parsed <=
+                DEFAULT_PROMPT_CONTEXT_OPTIONS.maxResources *
+                  DEFAULT_PROMPT_CONTEXT_OPTIONS.maxCharactersPerResource
+            ) {
+              this.plugin.settings.linkedContextMaxCharacters =
+                Math.round(parsed);
+              await this.plugin.saveSettings();
+            }
           }),
       );
   }

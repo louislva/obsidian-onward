@@ -1,11 +1,18 @@
 # Inline Complete
 
+> **Experimental branch:** `prompt-builder` constructs completion prompts from
+> yesterday's and today's journals plus direct web and vault links before
+> prefilling the active note. It is not the installed plugin. See
+> `docs/prompt-builder.md`.
+
 Copilot-style sentence continuation for Obsidian:
 
 - waits for a real pause before revealing anything (2 seconds by default);
 - quietly prefetches during that pause so model latency is mostly hidden;
-- supports literal next-token completion with Tinker's Qwen3.5 base models;
-- supports assistant-prefill completion with selected OpenRouter chat models;
+- supports context-enriched literal next-token completion with Tinker's
+  Qwen3.5 base models;
+- supports context-enriched assistant prefill with selected OpenRouter chat
+  models;
 - tries models in a configurable fallback order across both services;
 - temporarily skips failing models with an exponential cooldown;
 - shows the continuation as gray ghost text;
@@ -32,9 +39,14 @@ The initial order starts with `Qwen/Qwen3.5-35B-A3B-Base` on Tinker. Existing
 installations migrate their previously selected model to the top and append the
 other choices underneath it. Raw Tinker requests give the base model the note
 name and everything before the cursor, then request a literal continuation.
-OpenRouter prefill requests supply the whole note as context and finish with an
-assistant message containing everything before the cursor, prompting the model
-to continue its own text.
+On this branch, prompts first read yesterday's and today's journals from the
+configurable `Journal` folder when they exist, excluding the active file. They
+then simulate readable retrieval of direct web links and vault links from the
+active note. Webpages are reduced to Reader View-style Markdown and linked
+vault files are resolved through Obsidian. The prompt ends with the active file
+through the cursor. OpenRouter models receive real user/assistant
+command-response pairs; raw Tinker models receive the same session as one
+causal transcript.
 
 Available models:
 
@@ -58,7 +70,10 @@ up/down controls.
 
 API keys are never logged. The first eligible service receives note content
 whenever a completion request starts. If that request fails, later fallback
-services may receive the same note sequentially until one succeeds.
+services may receive the same note sequentially until one succeeds. On the
+`prompt-builder` branch, those requests also include the successfully retrieved
+contents of recent journals plus direct web and vault links unless **Read
+supporting context** is disabled.
 
 ## Status indicator
 
@@ -66,7 +81,9 @@ The bottom-right status item uses the short name of the model currently being
 tried or whose suggestion is visible, such as `Qwen 35B`, `K2`, or `Opus 4.5`.
 It reports `waiting`, `generating`, `generated · shown`, or `generated · not
 shown`, plus `missing key` and `error` when a request cannot run. Hover it to
-see fallback and cooldown details.
+see fallback and cooldown details. Click the status item to inspect the exact
+last model-facing prompt. Raw models show the causal transcript unchanged;
+chat models show the complete message array as formatted JSON.
 
 The Kimi K2 option uses the requested `moonshotai/kimi-k2::deepinfra` identifier
 and additionally locks OpenRouter routing to `deepinfra`, with provider fallback

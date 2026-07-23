@@ -7,6 +7,7 @@ import {
   DEFAULT_MODEL_PRIORITY,
   FAILURE_COOLDOWN_BASE_MS,
   FAILURE_COOLDOWN_MAX_MS,
+  formatCompletionPrompt,
   getCompletionModel,
   nextModelFailureCooldown,
   normalizeModelPriority,
@@ -24,7 +25,9 @@ describe("completion request context", () => {
   };
 
   it("builds a literal base-model prompt ending exactly at the cursor", () => {
-    expect(buildRawCompletionPrompt(snapshot)).toBe("# Ideas\n\nThe cat");
+    expect(buildRawCompletionPrompt(snapshot)).toBe(
+      'user: vault.read "Ideas.md"\n\nassistant: The cat',
+    );
   });
 
   it("removes trailing horizontal whitespace from model-facing prefixes", () => {
@@ -46,8 +49,79 @@ describe("completion request context", () => {
       role: "assistant",
       content: "The cat",
     });
-    expect(messages[1].content).toContain("Document name: Ideas");
-    expect(messages[1].content).toContain("The cat<|cursor|> sat down.");
+    expect(messages.at(-2)).toEqual({
+      role: "user",
+      content: 'vault.read "Ideas.md"',
+    });
+  });
+
+  it("serializes linked sources as command responses before the active file", () => {
+    const promptContext = {
+      resources: [
+        {
+          kind: "web" as const,
+          target: "https://example.com/article",
+          content: "# Example\n\nUseful web context.",
+        },
+        {
+          kind: "file" as const,
+          target: "Research/Related.md",
+          content: "Useful vault context.",
+        },
+      ],
+      discovered: 2,
+      omitted: 0,
+      timedOut: 0,
+      journalCount: 0,
+    };
+    const withPath = {
+      ...snapshot,
+      path: "Drafts/Ideas.md",
+    };
+
+    expect(buildRawCompletionPrompt(withPath, promptContext)).toBe(
+      [
+        'user: web.read --format=markdown "https://example.com/article"',
+        "assistant: # Example\n\nUseful web context.",
+        'user: vault.read "Research/Related.md"',
+        "assistant: Useful vault context.",
+        'user: vault.read "Drafts/Ideas.md"',
+        "assistant: The cat",
+      ].join("\n\n"),
+    );
+
+    const messages = buildPrefillMessages(
+      withPath,
+      "native",
+      promptContext,
+    );
+    expect(messages.slice(1)).toEqual([
+      {
+        role: "user",
+        content:
+          'web.read --format=markdown "https://example.com/article"',
+      },
+      {
+        role: "assistant",
+        content: "# Example\n\nUseful web context.",
+      },
+      {
+        role: "user",
+        content: 'vault.read "Research/Related.md"',
+      },
+      {
+        role: "assistant",
+        content: "Useful vault context.",
+      },
+      {
+        role: "user",
+        content: 'vault.read "Drafts/Ideas.md"',
+      },
+      {
+        role: "assistant",
+        content: "The cat",
+      },
+    ]);
   });
 
   it("falls back to the default model for stale saved settings", () => {
@@ -66,7 +140,9 @@ describe("completion request context", () => {
 
     expect(request.url).toContain("/oai/api/v1/completions");
     expect(request.body.model).toBe("Qwen/Qwen3.5-35B-A3B-Base");
-    expect(request.body.prompt).toBe("# Ideas\n\nThe cat");
+    expect(request.body.prompt).toBe(
+      'user: vault.read "Ideas.md"\n\nassistant: The cat',
+    );
     expect(request.body.messages).toBeUndefined();
   });
 
@@ -88,6 +164,28 @@ describe("completion request context", () => {
     expect(request.body.provider).toEqual({
       only: ["deepinfra"],
       allow_fallbacks: false,
+    });
+  });
+
+  it("formats the exact model-facing prompt for inspection", () => {
+    const rawRequest = buildCompletionRequest(
+      getCompletionModel("Qwen/Qwen3.5-35B-A3B-Base"),
+      snapshot,
+      { maxTokens: 48, temperature: 0.1, routeByLatency: true },
+    );
+    const chatRequest = buildCompletionRequest(
+      getCompletionModel("moonshotai/kimi-k2::deepinfra"),
+      snapshot,
+      { maxTokens: 48, temperature: 0.1, routeByLatency: true },
+    );
+
+    expect(formatCompletionPrompt(rawRequest)).toEqual({
+      format: "Raw causal prompt",
+      text: rawRequest.body.prompt,
+    });
+    expect(formatCompletionPrompt(chatRequest)).toEqual({
+      format: "Chat messages (JSON)",
+      text: JSON.stringify(chatRequest.body.messages, null, 2),
     });
   });
 
@@ -116,16 +214,18 @@ describe("completion request context", () => {
   });
 });
 
-describe("legacy completion message behavior", () => {
-  it("keeps the complete document available to prefill models", () => {
+describe("prompt-builder completion message behavior", () => {
+  it("gives prefill models only the active document prefix", () => {
     const result = buildPrefillMessages({
       title: "Ideas",
       document: "The cat sat down.",
       cursor: 7,
     });
 
-    expect(result[1].content).toContain("Document name: Ideas");
-    expect(result[1].content).toContain("The cat<|cursor|> sat down.");
+    expect(result.at(-1)?.content).toBe("The cat");
+    expect(
+      result.some((message) => message.content.includes(" sat down.")),
+    ).toBe(false);
   });
 });
 
