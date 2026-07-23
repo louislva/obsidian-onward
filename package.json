@@ -1,6 +1,6 @@
 {
   "name": "obsidian-inline-complete",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Copilot-style inline prose completion for Obsidian via Tinker and OpenRouter.",
   "private": true,
   "type": "module",

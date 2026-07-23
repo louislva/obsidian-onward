@@ -97,13 +97,20 @@ export interface CompletionSnapshot {
   cursor: number;
 }
 
+export interface CompletionInsertion {
+  replaceFrom: number;
+  text: string;
+}
+
 const META_RESPONSE =
   /^(?:sure[,!.\s]|certainly[,!.\s]|here(?:'s| is)\b|continuation:|suggestion:|the (?:next|likely)\b|i (?:would|think|can't|cannot)\b)/i;
 
 export function buildRawCompletionPrompt(
   snapshot: CompletionSnapshot,
 ): string {
-  const before = snapshot.document.slice(0, snapshot.cursor);
+  const before = canonicalizeCompletionPrefix(
+    snapshot.document.slice(0, snapshot.cursor),
+  );
   return `# ${snapshot.title}\n\n${before}`;
 }
 
@@ -112,6 +119,7 @@ export function buildPrefillMessages(
   mode: "native" | "assistant-history" = "native",
 ): CompletionMessage[] {
   const before = snapshot.document.slice(0, snapshot.cursor);
+  const canonicalBefore = canonicalizeCompletionPrefix(before);
   const after = snapshot.document.slice(snapshot.cursor);
 
   const messages: CompletionMessage[] = [
@@ -135,7 +143,7 @@ export function buildPrefillMessages(
     },
     {
       role: "assistant",
-      content: before,
+      content: canonicalBefore,
     },
   ];
 
@@ -202,6 +210,51 @@ export function requestStartDelay(
   return Math.max(0, pauseDelayMs - requestHeadStartMs);
 }
 
+export function canonicalizeCompletionPrefix(prefix: string): string {
+  return prefix.replace(/ +$/, "");
+}
+
+const ATTACH_TO_LEFT_PUNCTUATION = /^ *[.,!?;:%)\]}'’]/u;
+const STARTS_WITH_WORD = /^[\p{L}\p{N}_]/u;
+const NEEDS_SPACE_AFTER = /[\p{L}\p{N}_.,!?;:%)\]}"”]$/u;
+
+export function reconcileCompletionBoundary(
+  text: string,
+  snapshot: CompletionSnapshot,
+): CompletionInsertion {
+  const before = snapshot.document.slice(0, snapshot.cursor);
+  const trailingWhitespace = before.match(/ +$/)?.[0] ?? "";
+  let normalized = text;
+  let replaceFrom = snapshot.cursor;
+
+  if (ATTACH_TO_LEFT_PUNCTUATION.test(normalized)) {
+    normalized = normalized.replace(/^ +/, "");
+    if (trailingWhitespace) {
+      replaceFrom -= trailingWhitespace.length;
+    }
+    return { replaceFrom, text: normalized };
+  }
+
+  if (trailingWhitespace) {
+    normalized = normalized.replace(/^ +/, "");
+    return { replaceFrom, text: normalized };
+  }
+
+  const leadingHorizontalWhitespace = normalized.match(/^ +/)?.[0] ?? "";
+  if (leadingHorizontalWhitespace.length > 1) {
+    normalized = ` ${normalized.slice(leadingHorizontalWhitespace.length)}`;
+  }
+
+  if (
+    STARTS_WITH_WORD.test(normalized) &&
+    NEEDS_SPACE_AFTER.test(before)
+  ) {
+    normalized = ` ${normalized}`;
+  }
+
+  return { replaceFrom, text: normalized };
+}
+
 export function shouldClearGhostText(
   documentChanged: boolean,
   selectionWasExplicitlySet: boolean,
@@ -252,7 +305,7 @@ export function sanitizeCompletion(
 
   const suffix = snapshot.document.slice(snapshot.cursor);
   text = removeDuplicatedSuffix(text, suffix);
-  text = text.replace(/[ \t]+$/gm, "");
+  text = text.replace(/[ \t]+$/, "");
 
   if (!text.trim() || META_RESPONSE.test(text.trimStart())) return "";
 

@@ -26,6 +26,7 @@ import {
   COMPLETION_MODELS,
   DEFAULT_MODEL_ID,
   getCompletionModel,
+  reconcileCompletionBoundary,
   requestStartDelay,
   sanitizeCompletion,
   shouldClearGhostText,
@@ -59,6 +60,7 @@ const DEFAULT_SETTINGS: InlineCompleteSettings = {
 
 interface GhostText {
   pos: number;
+  replaceFrom: number;
   text: string;
 }
 
@@ -200,11 +202,11 @@ class CompletionController {
   accept(): boolean {
     if (!this.suggestion) return false;
 
-    const { pos, text } = this.suggestion;
+    const { pos, replaceFrom, text } = this.suggestion;
     this.cancel(true);
     this.view.dispatch({
-      changes: { from: pos, insert: text },
-      selection: { anchor: pos + text.length },
+      changes: { from: replaceFrom, to: pos, insert: text },
+      selection: { anchor: replaceFrom + text.length },
       scrollIntoView: true,
     });
     return true;
@@ -348,6 +350,14 @@ class CompletionController {
         );
         return;
       }
+      const insertion = reconcileCompletionBoundary(text, snapshot);
+      if (!insertion.text) {
+        this.plugin.setStatus(
+          "hidden",
+          "The completion contained only redundant boundary whitespace",
+        );
+        return;
+      }
 
       const show = (): void => {
         if (generation !== this.generation || controller.signal.aborted) {
@@ -360,13 +370,17 @@ class CompletionController {
           );
           return;
         }
-        this.suggestion = { pos: snapshot.cursor, text };
+        this.suggestion = {
+          pos: snapshot.cursor,
+          replaceFrom: insertion.replaceFrom,
+          text: insertion.text,
+        };
         this.view.dispatch({
           effects: setGhostText.of(this.suggestion),
         });
         this.plugin.setStatus(
           "shown",
-          `Showing ${text.length} generated characters`,
+          `Showing ${insertion.text.length} generated characters`,
         );
       };
 

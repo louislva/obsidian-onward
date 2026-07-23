@@ -11,6 +11,13 @@ Copilot-style sentence continuation for Obsidian:
 - accepts with **Tab** and dismisses with **Escape**;
 - cancels stale requests as soon as typing resumes.
 
+At the cursor boundary, model-facing prefixes omit trailing ordinary spaces so
+the tokenizer can give whitespace to the following token. Before display and
+acceptance, the plugin reconciles the generated boundary with the untouched
+note: it deduplicates spaces, supplies a missing prose space, attaches
+punctuation, and removes accidental spaces before punctuation. Newlines, tabs,
+and Markdown hard-break spaces are preserved.
+
 The default is `Qwen/Qwen3.5-35B-A3B-Base` on Tinker. Raw Tinker requests give
 the base model the note name and everything before the cursor, then request a
 literal continuation. OpenRouter prefill requests supply the whole note as

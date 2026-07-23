@@ -62,6 +62,10 @@ plugin. Treat this file as the project handoff for future agents.
 - Requests are prefetched during the pause but are not revealed before the
   configured pause duration.
 - Any edit or cursor movement aborts the old request and clears stale text.
+- Ordinary trailing spaces are removed only from the model-facing prefix.
+  `reconcileCompletionBoundary` joins the result to the untouched note and may
+  replace trailing spaces when punctuation must attach. Preserve tabs,
+  newlines, and Markdown hard-break spaces.
 - Never call `view.dispatch()` synchronously from
   `CompletionController.update()`. CodeMirror forbids nested dispatch while it
   is applying an update. Document/selection transactions clear ghost text in
@@ -85,8 +89,10 @@ The model dropdown is intentionally curated in `COMPLETION_MODELS`.
 - Tinker's HTTP endpoint currently accepts the public base-model ID directly,
   despite documentation emphasizing `tinker://` sampler checkpoint paths.
 - The raw prompt is a Markdown title followed by the document prefix through
-  the cursor. A raw causal completion cannot also consume the suffix unless
-  proper model-specific fill-in-the-middle tokens are introduced and tested.
+  the cursor, with ordinary trailing spaces canonicalized away so whitespace
+  belongs to the generated token. A raw causal completion cannot also consume
+  the suffix unless proper model-specific fill-in-the-middle tokens are
+  introduced and tested.
 
 ### OpenRouter assistant continuation
 

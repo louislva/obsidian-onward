@@ -3,7 +3,9 @@ import {
   buildCompletionRequest,
   buildPrefillMessages,
   buildRawCompletionPrompt,
+  canonicalizeCompletionPrefix,
   getCompletionModel,
+  reconcileCompletionBoundary,
   requestStartDelay,
   sanitizeCompletion,
   shouldClearGhostText,
@@ -18,6 +20,18 @@ describe("completion request context", () => {
 
   it("builds a literal base-model prompt ending exactly at the cursor", () => {
     expect(buildRawCompletionPrompt(snapshot)).toBe("# Ideas\n\nThe cat");
+  });
+
+  it("removes trailing horizontal whitespace from model-facing prefixes", () => {
+    expect(canonicalizeCompletionPrefix("The cat  ")).toBe("The cat");
+    expect(canonicalizeCompletionPrefix("The cat  \n")).toBe("The cat  \n");
+
+    const messages = buildPrefillMessages({
+      title: "Ideas",
+      document: "The cat  ",
+      cursor: 9,
+    });
+    expect(messages.at(-1)?.content).toBe("The cat");
   });
 
   it("prefills the assistant with the document prefix and supplies full context", () => {
@@ -129,6 +143,50 @@ describe("shouldClearGhostText", () => {
   });
 });
 
+describe("reconcileCompletionBoundary", () => {
+  function apply(
+    document: string,
+    completion: string,
+  ): { result: string; insertion: ReturnType<typeof reconcileCompletionBoundary> } {
+    const snapshot = {
+      title: "Note",
+      document,
+      cursor: document.length,
+    };
+    const insertion = reconcileCompletionBoundary(completion, snapshot);
+    return {
+      result:
+        document.slice(0, insertion.replaceFrom) +
+        insertion.text +
+        document.slice(snapshot.cursor),
+      insertion,
+    };
+  }
+
+  it("gives the following token ownership of the inter-word space", () => {
+    expect(apply("Hello", "world").result).toBe("Hello world");
+    expect(apply("Hello,", "world").result).toBe("Hello, world");
+    expect(apply("(", "world").result).toBe("(world");
+  });
+
+  it("deduplicates an already typed boundary space", () => {
+    expect(apply("Hello ", " world").result).toBe("Hello world");
+    expect(apply("Hello ", "world").result).toBe("Hello world");
+    expect(apply("Hello", "   world").result).toBe("Hello world");
+  });
+
+  it("attaches punctuation and replaces accidental spaces before it", () => {
+    expect(apply("Hello", " , world").result).toBe("Hello, world");
+    const corrected = apply("Hello  ", " , world");
+    expect(corrected.result).toBe("Hello, world");
+    expect(corrected.insertion.replaceFrom).toBe(5);
+  });
+
+  it("preserves newlines and Markdown hard-break spaces", () => {
+    expect(apply("Hello  ", "\nworld").result).toBe("Hello  \nworld");
+  });
+});
+
 describe("sanitizeCompletion", () => {
   const snapshot = {
     title: "Note",
@@ -147,6 +205,12 @@ describe("sanitizeCompletion", () => {
     );
     expect(sanitizeCompletion("Sure, here is a continuation", snapshot)).toBe(
       "",
+    );
+  });
+
+  it("preserves intentional spaces before generated Markdown line breaks", () => {
+    expect(sanitizeCompletion(" line  \nnext", snapshot)).toBe(
+      " line  \nnext",
     );
   });
 
