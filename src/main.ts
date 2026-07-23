@@ -22,6 +22,11 @@ import {
   Setting,
 } from "obsidian";
 import {
+  DEFAULT_PROMPT_CONTEXT_OPTIONS,
+  PromptContextLoader,
+} from "./prompt-context";
+import type { PromptContext } from "./prompt-format";
+import {
   buildCompletionRequest,
   DEFAULT_MODEL_PRIORITY,
   getCompletionModel,
@@ -47,6 +52,8 @@ interface InlineCompleteSettings {
   temperature: number;
   enabled: boolean;
   routeByLatency: boolean;
+  linkedContextEnabled: boolean;
+  linkedContextMaxCharacters: number;
 }
 
 const DEFAULT_SETTINGS: InlineCompleteSettings = {
@@ -59,6 +66,9 @@ const DEFAULT_SETTINGS: InlineCompleteSettings = {
   temperature: 0.15,
   enabled: true,
   routeByLatency: true,
+  linkedContextEnabled: true,
+  linkedContextMaxCharacters:
+    DEFAULT_PROMPT_CONTEXT_OPTIONS.maxTotalCharacters,
 };
 
 interface GhostText {
@@ -277,9 +287,12 @@ class CompletionController {
 
     this.plugin.setStatus("waiting", "Waiting for the writing pause");
     this.revealAt = Date.now() + this.plugin.settings.pauseDelayMs;
+    const contextHeadStartMs = this.plugin.settings.linkedContextEnabled
+      ? DEFAULT_PROMPT_CONTEXT_OPTIONS.webWaitMs
+      : 0;
     const delay = requestStartDelay(
       this.plugin.settings.pauseDelayMs,
-      this.plugin.settings.requestHeadStartMs,
+      this.plugin.settings.requestHeadStartMs + contextHeadStartMs,
     );
     this.requestTimer = window.setTimeout(() => {
       this.requestTimer = null;
@@ -299,16 +312,70 @@ class CompletionController {
     const document = this.view.state.doc.toString();
     const cursor = this.view.state.selection.main.head;
     const activeView = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
+    const activeFile =
+      activeView?.file ?? this.plugin.app.workspace.getActiveFile();
     const title =
-      activeView?.file?.basename ??
-      this.plugin.app.workspace.getActiveFile()?.basename ??
+      activeFile?.basename ??
       "Untitled";
-    const snapshot: CompletionSnapshot = { title, document, cursor };
+    const snapshot: CompletionSnapshot = {
+      title,
+      path: activeFile?.path,
+      document,
+      cursor,
+    };
     const generation = ++this.generation;
     const controller = new AbortController();
     this.abortController = controller;
 
     try {
+      let promptContext: PromptContext | undefined;
+      if (
+        this.plugin.settings.linkedContextEnabled &&
+        activeFile
+      ) {
+        this.plugin.setStatus(
+          "generating",
+          "Reading linked notes and webpages for prompt context",
+        );
+        promptContext = await this.plugin.promptContextLoader.load(
+          document,
+          activeFile,
+          controller.signal,
+          {
+            ...DEFAULT_PROMPT_CONTEXT_OPTIONS,
+            maxTotalCharacters:
+              this.plugin.settings.linkedContextMaxCharacters,
+          },
+        );
+        if (
+          controller.signal.aborted ||
+          generation !== this.generation
+        ) {
+          return;
+        }
+      }
+
+      await this.waitForModelRequestWindow(controller.signal);
+      if (
+        controller.signal.aborted ||
+        generation !== this.generation
+      ) {
+        return;
+      }
+
+      const contextDetail = promptContext
+        ? [
+            `${promptContext.resources.length} linked resource${promptContext.resources.length === 1 ? "" : "s"} loaded`,
+            promptContext.omitted > 0
+              ? `${promptContext.omitted} omitted`
+              : "",
+            promptContext.timedOut > 0
+              ? `${promptContext.timedOut} still loading for a later request`
+              : "",
+          ]
+            .filter(Boolean)
+            .join("; ")
+        : "Linked context disabled or unavailable";
       const failures: FailedModelAttempt[] = [];
       let result:
         | {
@@ -329,8 +396,8 @@ class CompletionController {
         this.plugin.setStatus(
           "generating",
           failures.length > 0
-            ? `Trying ${model.label} after ${failures.length} failed fallback attempt${failures.length === 1 ? "" : "s"}`
-            : `Requesting ${model.label}`,
+            ? `Trying ${model.label} after ${failures.length} failed fallback attempt${failures.length === 1 ? "" : "s"}. ${contextDetail}`
+            : `Requesting ${model.label}. ${contextDetail}`,
           model,
         );
         const attemptStartedAt = Date.now();
@@ -341,6 +408,7 @@ class CompletionController {
             maxTokens: this.plugin.settings.maxTokens,
             temperature: this.plugin.settings.temperature,
             routeByLatency: this.plugin.settings.routeByLatency,
+            promptContext,
           });
           const response = await fetch(request.url, {
             method: "POST",
@@ -468,6 +536,7 @@ class CompletionController {
             failures.length > 0
               ? `Fallback succeeded after ${failures.map((failure) => failure.model.shortName).join(", ")} failed`
               : "",
+            contextDetail,
           ]
             .filter(Boolean)
             .join(". "),
@@ -510,6 +579,25 @@ class CompletionController {
     );
   }
 
+  private async waitForModelRequestWindow(
+    signal: AbortSignal,
+  ): Promise<void> {
+    const modelRequestAt =
+      this.revealAt - this.plugin.settings.requestHeadStartMs;
+    const remaining = modelRequestAt - Date.now();
+    if (remaining <= 0 || signal.aborted) return;
+
+    await new Promise<void>((resolve) => {
+      const finish = (): void => {
+        window.clearTimeout(timer);
+        signal.removeEventListener("abort", finish);
+        resolve();
+      };
+      const timer = window.setTimeout(finish, remaining);
+      signal.addEventListener("abort", finish, { once: true });
+    });
+  }
+
   private clearGhostAfterUpdate(): void {
     if (this.deferredGhostClearTimer !== null) return;
 
@@ -547,9 +635,11 @@ export default class InlineCompletePlugin extends Plugin {
   private lastErrorAt = 0;
   private modelCircuits = new Map<string, ModelCircuitState>();
   private statusBarItem: HTMLElement | null = null;
+  promptContextLoader!: PromptContextLoader;
 
   async onload(): Promise<void> {
     await this.loadSettings();
+    this.promptContextLoader = new PromptContextLoader(this.app);
     this.statusBarItem = this.addStatusBarItem();
     this.statusBarItem.addClass("inline-complete-status");
     this.setStatus("idle", "Ready");
@@ -665,6 +755,16 @@ export default class InlineCompletePlugin extends Plugin {
     this.settings.enabled = enabled;
     await this.saveSettings();
     this.setStatus("idle", enabled ? "Ready" : "Disabled");
+    for (const controller of this.liveControllers) controller.refresh();
+  }
+
+  async setLinkedContextEnabled(enabled: boolean): Promise<void> {
+    this.settings.linkedContextEnabled = enabled;
+    await this.saveSettings();
+    this.setStatus(
+      "idle",
+      enabled ? "Linked prompt context enabled" : "Linked prompt context disabled",
+    );
     for (const controller of this.liveControllers) controller.refresh();
   }
 
@@ -993,6 +1093,45 @@ class InlineCompleteSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             this.plugin.settings.routeByLatency = value;
             await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Read linked context")
+      .setDesc(
+        "Include referenced vault files and readable versions of linked webpages in completion prompts. Web content is cached for 15 minutes.",
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.linkedContextEnabled)
+          .onChange(async (value) => {
+            await this.plugin.setLinkedContextEnabled(value);
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Maximum linked-context characters")
+      .setDesc(
+        "Total character budget shared by linked resources. Individual resources are capped at 12,000 characters. Default: 48000.",
+      )
+      .addText((text) =>
+        text
+          .setValue(
+            String(this.plugin.settings.linkedContextMaxCharacters),
+          )
+          .onChange(async (value) => {
+            const parsed = Number(value);
+            if (
+              Number.isFinite(parsed) &&
+              parsed >= 1_000 &&
+              parsed <=
+                DEFAULT_PROMPT_CONTEXT_OPTIONS.maxResources *
+                  DEFAULT_PROMPT_CONTEXT_OPTIONS.maxCharactersPerResource
+            ) {
+              this.plugin.settings.linkedContextMaxCharacters =
+                Math.round(parsed);
+              await this.plugin.saveSettings();
+            }
           }),
       );
   }
