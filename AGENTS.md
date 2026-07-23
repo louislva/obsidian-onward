@@ -1,7 +1,7 @@
-# Working on Inline Complete
+# Working on Onward
 
-This repository contains Louis's personal Obsidian inline prose-completion
-plugin. Treat this file as the project handoff for future agents.
+Onward is Louis's personal Obsidian inline prose-completion plugin. Treat this
+file as the project handoff for future agents.
 
 ## Turn completion and commits
 
@@ -19,9 +19,10 @@ plugin. Treat this file as the project handoff for future agents.
 
 ## Repository and installation
 
-- Repository: `/Users/louisarge/Git/hobby/obsidian-inline-complete`
+- Repository: `/Users/louisarge/Git/hobby/onward`
 - Installed plugin:
-  `/Users/louisarge/Documents/Personal/.obsidian/plugins/inline-complete`
+  `/Users/louisarge/Documents/Personal/.obsidian/plugins/onward`
+- Obsidian plugin ID: `onward`.
 - Install only `main.js`, `manifest.json`, and `styles.css`.
 - Never overwrite or remove the installed `data.json`. It contains the user's
   selected model, timing preferences, and saved API keys.

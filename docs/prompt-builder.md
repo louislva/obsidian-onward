@@ -1,7 +1,6 @@
 # Linked-context prompt builder
 
-This document describes the linked-context prompt builder used by Inline
-Complete.
+This document describes the linked-context prompt builder used by Onward.
 
 ## Goal
 

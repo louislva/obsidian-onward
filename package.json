@@ -1,7 +1,7 @@
 {
-  "name": "obsidian-inline-complete",
-  "version": "0.6.1",
-  "description": "Copilot-style inline prose completion for Obsidian via Tinker and OpenRouter.",
+  "name": "obsidian-onward",
+  "version": "0.7.0",
+  "description": "Onward: Copilot-style inline prose completion for Obsidian via Tinker and OpenRouter.",
   "private": true,
   "type": "module",
   "scripts": {

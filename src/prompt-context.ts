@@ -311,7 +311,7 @@ export class PromptContextLoader {
         headers: {
           Accept:
             "text/html, text/markdown, text/plain;q=0.9, application/json;q=0.8",
-          "User-Agent": "Obsidian Inline Complete context reader",
+          "User-Agent": "Obsidian Onward context reader",
         },
         throw: false,
       });

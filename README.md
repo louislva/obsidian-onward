@@ -1,6 +1,6 @@
-# Inline Complete
+# Onward
 
-Copilot-style sentence continuation for Obsidian:
+Onward is Copilot-style sentence continuation for Obsidian:
 
 - waits for a real pause before revealing anything (2 seconds by default);
 - quietly prefetches during that pause so model latency is mostly hidden;
@@ -65,7 +65,7 @@ The plugin first reads `TINKER_API_KEY` or `OPENROUTER_API_KEY` from the
 environment inherited by the Obsidian desktop process, according to the
 selected model. If Obsidian was launched from the macOS Dock, shell environment
 variables often are not inherited; in that case, paste the relevant keys into
-**Settings → Community plugins → Inline Complete** and rank the models with the
+**Settings → Community plugins → Onward** and rank the models with the
 up/down controls.
 
 API keys are never logged. The first eligible service receives note content
@@ -98,7 +98,7 @@ npm run check
 For local installation, copy `main.js`, `manifest.json`, and `styles.css` into:
 
 ```text
-<vault>/.obsidian/plugins/inline-complete/
+<vault>/.obsidian/plugins/onward/
 ```
 
-Then enable `inline-complete` in Obsidian's Community plugins settings.
+Then enable **Onward** in Obsidian's Community plugins settings.

@@ -6,7 +6,7 @@ const production = process.argv[2] === "production";
 
 const context = await esbuild.context({
   banner: {
-    js: "/* Inline Complete — generated bundle */",
+    js: "/* Onward — generated bundle */",
   },
   entryPoints: ["src/main.ts"],
   bundle: true,
@@ -41,4 +41,3 @@ if (production) {
 } else {
   await context.watch();
 }
-

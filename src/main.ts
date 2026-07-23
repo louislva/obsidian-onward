@@ -145,7 +145,7 @@ class GhostTextWidget extends WidgetType {
 
   toDOM(): HTMLElement {
     const element = document.createElement("span");
-    element.className = "inline-complete-ghost";
+    element.className = "onward-ghost";
     element.textContent = this.text;
     element.setAttribute("aria-label", `Suggestion: ${this.text}`);
     return element;
@@ -453,7 +453,7 @@ class CompletionController {
               ...(!isTinker
                 ? {
                     "HTTP-Referer": "https://obsidian.md",
-                    "X-Title": "Obsidian Inline Complete",
+                    "X-Title": "Obsidian Onward",
                   }
                 : {}),
             },
@@ -670,8 +670,8 @@ class PromptPreviewModal extends Modal {
   }
 
   onOpen(): void {
-    this.modalEl.addClass("inline-complete-prompt-modal");
-    this.titleEl.setText("Inline Complete prompt");
+    this.modalEl.addClass("onward-prompt-modal");
+    this.titleEl.setText("Onward prompt");
     this.contentEl.empty();
 
     if (!this.preview) {
@@ -682,7 +682,7 @@ class PromptPreviewModal extends Modal {
     }
 
     this.contentEl.createEl("p", {
-      cls: "inline-complete-prompt-meta",
+      cls: "onward-prompt-meta",
       text: [
         this.preview.model.label,
         this.preview.format,
@@ -691,7 +691,7 @@ class PromptPreviewModal extends Modal {
       ].join(" · "),
     });
     const prompt = this.contentEl.createEl("textarea", {
-      cls: "inline-complete-prompt-text",
+      cls: "onward-prompt-text",
       attr: {
         "aria-label": `Full prompt sent to ${this.preview.model.label}`,
         readonly: "true",
@@ -725,7 +725,7 @@ export default class InlineCompletePlugin extends Plugin {
     await this.loadSettings();
     this.promptContextLoader = new PromptContextLoader(this.app);
     this.statusBarItem = this.addStatusBarItem();
-    this.statusBarItem.addClass("inline-complete-status");
+    this.statusBarItem.addClass("onward-status");
     this.statusBarItem.setAttribute("role", "button");
     this.statusBarItem.setAttribute("tabindex", "0");
     this.registerDomEvent(this.statusBarItem, "click", () => {
@@ -784,7 +784,7 @@ export default class InlineCompletePlugin extends Plugin {
       callback: async () => {
         await this.setEnabled(!this.settings.enabled);
         new Notice(
-          `Inline Complete ${this.settings.enabled ? "enabled" : "disabled"}`,
+          `Onward ${this.settings.enabled ? "enabled" : "disabled"}`,
         );
       },
     });
@@ -842,7 +842,7 @@ export default class InlineCompletePlugin extends Plugin {
     this.statusBarItem.dataset.state = status;
     this.statusBarItem.setAttribute(
       "aria-label",
-      `Inline Complete: ${model.shortName}, ${STATUS_LABELS[status]}`,
+      `Onward: ${model.shortName}, ${STATUS_LABELS[status]}`,
     );
     this.statusBarItem.setAttribute(
       "title",
@@ -991,8 +991,8 @@ export default class InlineCompletePlugin extends Plugin {
     this.missingKeyNotified = true;
     new Notice(
       keyedModels.length === 0
-        ? "Inline Complete needs a Tinker or OpenRouter API key."
-        : "Inline Complete: all configured models are temporarily cooling down.",
+        ? "Onward needs a Tinker or OpenRouter API key."
+        : "Onward: all configured models are temporarily cooling down.",
       8000,
     );
   }
@@ -1023,7 +1023,7 @@ export default class InlineCompletePlugin extends Plugin {
 
     this.lastError = message;
     this.lastErrorAt = now;
-    new Notice(`Inline Complete: ${message}`, 6000);
+    new Notice(`Onward: ${message}`, 6000);
   }
 
   async loadSettings(): Promise<void> {
@@ -1055,14 +1055,14 @@ class InlineCompleteSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "Inline Complete" });
+    containerEl.createEl("h2", { text: "Onward" });
 
     const hasTinkerKey = Boolean(this.plugin.getApiKey("tinker"));
     const hasOpenRouterKey = Boolean(
       this.plugin.getApiKey("openrouter-prefill"),
     );
     containerEl.createEl("p", {
-      cls: "inline-complete-settings-note",
+      cls: "onward-settings-note",
       text: [
         `Tinker key: ${hasTinkerKey ? "available" : "missing"}.`,
         `OpenRouter key: ${hasOpenRouterKey ? "available" : "missing"}.`,
@@ -1094,7 +1094,7 @@ class InlineCompleteSettingTab extends PluginSettingTab {
           });
         text.inputEl.type = "password";
       });
-    apiSetting.settingEl.addClass("inline-complete-secret");
+    apiSetting.settingEl.addClass("onward-secret");
 
     const tinkerApiSetting = new Setting(containerEl)
       .setName("Tinker API key")
@@ -1109,11 +1109,11 @@ class InlineCompleteSettingTab extends PluginSettingTab {
           });
         text.inputEl.type = "password";
       });
-    tinkerApiSetting.settingEl.addClass("inline-complete-secret");
+    tinkerApiSetting.settingEl.addClass("onward-secret");
 
     containerEl.createEl("h3", { text: "Model fallback order" });
     containerEl.createEl("p", {
-      cls: "inline-complete-settings-note",
+      cls: "onward-settings-note",
       text: "The first eligible model is tried first. If it fails, the next model is tried immediately. Failed models cool down for 30 seconds; a failure immediately after recovery doubles that model's cooldown, up to 30 minutes.",
     });
 
@@ -1149,11 +1149,11 @@ class InlineCompleteSettingTab extends PluginSettingTab {
             this.display();
           }),
       );
-      modelSetting.settingEl.addClass("inline-complete-model-rank");
+      modelSetting.settingEl.addClass("onward-model-rank");
     });
 
     containerEl.createEl("p", {
-      cls: "inline-complete-settings-note",
+      cls: "onward-settings-note",
       text: "K2 remains locked to DeepInfra with OpenRouter provider fallback disabled. The plugin-level ranking handles fallback to a different model explicitly.",
     });
 
