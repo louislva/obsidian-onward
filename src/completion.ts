@@ -145,6 +145,8 @@ export interface CompletionRequestOptions {
   lineContextEnabled?: boolean;
 }
 
+export const RAW_COMPLETION_STOP_SEQUENCES = ["\n\n"];
+
 export interface CompletionRequest {
   url: string;
   body: {
@@ -154,6 +156,7 @@ export interface CompletionRequest {
     top_p: number;
     stream: false;
     prompt?: string;
+    stop?: string[];
     messages?: CompletionMessage[];
     provider?: {
       only?: string[];
@@ -401,6 +404,7 @@ export function buildCompletionRequest(
           options.promptContext,
           options.lineContextEnabled,
         ),
+        stop: [...RAW_COMPLETION_STOP_SEQUENCES],
       },
     };
   }
@@ -514,11 +518,19 @@ function removeDuplicatedSuffix(text: string, suffix: string): string {
   return text;
 }
 
+function removeSyntheticTranscriptTail(text: string): string {
+  const roleBoundary = text.search(
+    /(?:^|\n+)(?:user|assistant):(?=[ \t])/i,
+  );
+  return roleBoundary >= 0 ? text.slice(0, roleBoundary) : text;
+}
+
 export function sanitizeCompletion(
   raw: string,
   snapshot: CompletionSnapshot,
 ): string {
   let text = stripFence(raw.replace(/\r\n/g, "\n"));
+  text = removeSyntheticTranscriptTail(text);
   if (text.startsWith("§")) text = text.slice(1);
   text = text.replace(/^(?:continuation|suggestion):[ \t]*/i, "");
 

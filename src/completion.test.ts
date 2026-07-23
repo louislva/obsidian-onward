@@ -14,6 +14,7 @@ import {
   normalizeModelPriority,
   reconcileCompletionBoundary,
   requestStartDelay,
+  RAW_COMPLETION_STOP_SEQUENCES,
   sanitizeCompletion,
   shouldClearGhostText,
 } from "./completion";
@@ -216,6 +217,9 @@ describe("completion request context", () => {
     expect(request.body.prompt).toBe(
       'user: vault.read "Ideas.md"\n\nassistant: The cat',
     );
+    expect(request.body.stop).toEqual(
+      RAW_COMPLETION_STOP_SEQUENCES,
+    );
     expect(request.body.messages).toBeUndefined();
   });
 
@@ -238,6 +242,7 @@ describe("completion request context", () => {
       only: ["deepinfra"],
       allow_fallbacks: false,
     });
+    expect(request.body.stop).toBeUndefined();
   });
 
   it("passes line-aware layout through request construction", () => {
@@ -512,5 +517,23 @@ describe("sanitizeCompletion", () => {
         cursor: 9,
       }),
     ).toBe(" brown");
+  });
+
+  it("removes a generated synthetic transcript tail", () => {
+    expect(
+      sanitizeCompletion(
+        "tence.\n\nuser: journal.read \"Journal/2026-07-24.md\"\n\nassistant: tasks",
+        snapshot,
+      ),
+    ).toBe("tence.");
+  });
+
+  it("rejects a completion that is only synthetic transcript scaffolding", () => {
+    expect(
+      sanitizeCompletion(
+        'user: journal.read "Journal/2026-07-24.md"',
+        snapshot,
+      ),
+    ).toBe("");
   });
 });

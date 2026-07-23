@@ -149,6 +149,13 @@ There is deliberately no instruction after the active prefix. The base model's
 next-token task is to continue the final synthetic command response, which is
 the selected cursor line.
 
+Raw completion requests stop at a blank-line paragraph boundary. Qwen's
+tokenizer represents `\n\n` as one token, satisfying Tinker's single-token
+stop constraint while still allowing single-newline Markdown continuations.
+Because every synthetic transcript turn begins after a blank line, the model
+cannot advance into another retrieval turn. Response sanitization also removes
+a leaked `user:` or `assistant:` role boundary defensively.
+
 **Line-aware prompt layout** controls this serialization and is enabled by
 default. When disabled, both chat and raw models use one final
 `vault.read "path"` request whose assistant response contains the active file

@@ -134,6 +134,11 @@ new or omitted curated models are appended so the ranking remains complete.
   then the current line through the cursor. The earlier `N+1..$` response gives
   a raw causal model later-line context without model-specific fill-in-the-
   middle tokens.
+- Tinker requests stop on `\n\n`, a single Qwen token and the blank-line
+  boundary before every synthetic transcript turn. Tinker's compatible
+  completions endpoint rejects multi-token stop strings, so do not replace
+  this with `\nuser:`. Keep the defensive role-boundary sanitizer for backend
+  responses that reach transcript scaffolding without the blank-line token.
 
 ### OpenRouter assistant continuation
 
