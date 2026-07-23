@@ -70,7 +70,7 @@ const DEFAULT_SETTINGS: InlineCompleteSettings = {
   pauseDelayMs: 2000,
   requestHeadStartMs: 1500,
   maxTokens: 64,
-  temperature: 0.15,
+  temperature: 1,
   enabled: true,
   routeByLatency: true,
   lineContextEnabled: true,
@@ -1208,7 +1208,7 @@ class InlineCompleteSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Temperature")
-      .setDesc("Lower is more literal and predictable. Default: 0.15.")
+      .setDesc("Lower is more literal and predictable. Default: 1.")
       .addText((text) =>
         text
           .setValue(String(this.plugin.settings.temperature))
