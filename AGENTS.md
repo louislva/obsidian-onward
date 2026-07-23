@@ -25,8 +25,10 @@ plugin. Treat this file as the project handoff for future agents.
 - Install only `main.js`, `manifest.json`, and `styles.css`.
 - Never overwrite or remove the installed `data.json`. It contains the user's
   selected model, timing preferences, and saved API keys.
-- Obsidian must reload the plugin after installation: toggle Inline Complete
-  off and on, or restart Obsidian.
+- Obsidian must reload the plugin after installation. For changes to CodeMirror
+  editor extensions, prefer a full app reload/restart: the Community Plugins
+  “Reload plugins” action can refresh the manifest while leaving an existing
+  editor extension instance stale.
 
 ## Development workflow
 
@@ -60,6 +62,10 @@ plugin. Treat this file as the project handoff for future agents.
 - Requests are prefetched during the pause but are not revealed before the
   configured pause duration.
 - Any edit or cursor movement aborts the old request and clears stale text.
+- Never call `view.dispatch()` synchronously from
+  `CompletionController.update()`. CodeMirror forbids nested dispatch while it
+  is applying an update. Document/selection transactions clear ghost text in
+  `ghostTextField`; focus-only cleanup is deliberately deferred.
 - The bottom-right Obsidian status item uses short model names and reports:
   `waiting`, `generating`, `generated · shown`,
   `generated · not shown`, `missing key`, or `error`.

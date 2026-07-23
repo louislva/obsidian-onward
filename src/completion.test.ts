@@ -6,6 +6,7 @@ import {
   getCompletionModel,
   requestStartDelay,
   sanitizeCompletion,
+  shouldClearGhostText,
 } from "./completion";
 
 describe("completion request context", () => {
@@ -113,6 +114,18 @@ describe("requestStartDelay", () => {
   it("starts early enough for a result to land at the reveal time", () => {
     expect(requestStartDelay(2000, 1500)).toBe(500);
     expect(requestStartDelay(500, 1000)).toBe(0);
+  });
+});
+
+describe("shouldClearGhostText", () => {
+  it("clears inside the original document or cursor transaction", () => {
+    expect(shouldClearGhostText(true, false, true)).toBe(true);
+    expect(shouldClearGhostText(false, true, true)).toBe(true);
+  });
+
+  it("keeps ghost text for unrelated transactions only", () => {
+    expect(shouldClearGhostText(false, false, true)).toBe(false);
+    expect(shouldClearGhostText(false, false, false)).toBe(true);
   });
 });
 

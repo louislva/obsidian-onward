@@ -202,6 +202,16 @@ export function requestStartDelay(
   return Math.max(0, pauseDelayMs - requestHeadStartMs);
 }
 
+export function shouldClearGhostText(
+  documentChanged: boolean,
+  selectionWasExplicitlySet: boolean,
+  selectionIsEmpty: boolean,
+): boolean {
+  return (
+    documentChanged || selectionWasExplicitlySet || !selectionIsEmpty
+  );
+}
+
 function stripFence(text: string): string {
   const match = text.match(
     /^```(?:markdown|md|text)?[ \t]*\n([\s\S]*?)\n?```[ \t]*$/i,

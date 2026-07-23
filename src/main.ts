@@ -28,6 +28,7 @@ import {
   getCompletionModel,
   requestStartDelay,
   sanitizeCompletion,
+  shouldClearGhostText,
   type CompletionBackend,
   type CompletionSnapshot,
 } from "./completion";
@@ -129,7 +130,13 @@ const ghostTextField = StateField.define<DecorationSet>({
       ]);
     }
 
-    if (transaction.docChanged || !transaction.newSelection.main.empty) {
+    if (
+      shouldClearGhostText(
+        transaction.docChanged,
+        transaction.selection !== undefined,
+        transaction.newSelection.main.empty,
+      )
+    ) {
       return Decoration.none;
     }
     return value;
@@ -141,6 +148,7 @@ class CompletionController {
   private requestTimer: number | null = null;
   private revealTimer: number | null = null;
   private abortController: AbortController | null = null;
+  private deferredGhostClearTimer: number | null = null;
   private generation = 0;
   private revealAt = 0;
   private suggestion: GhostText | null = null;
@@ -156,13 +164,16 @@ class CompletionController {
   update(update: ViewUpdate): void {
     if (update.docChanged) {
       this.dismissedUntilChange = false;
-      this.cancel(true);
+      // The state field clears the ghost text as part of this transaction.
+      // Dispatching another transaction from ViewPlugin.update is forbidden.
+      this.cancel(false);
       this.schedule();
       return;
     }
 
     if (update.selectionSet) {
-      this.cancel(true);
+      // The selection transaction clears the ghost text in ghostTextField.
+      this.cancel(false);
       this.schedule();
       return;
     }
@@ -170,7 +181,8 @@ class CompletionController {
     if (update.focusChanged) {
       if (this.view.hasFocus) this.schedule();
       else {
-        this.cancel(true);
+        this.cancel(false);
+        this.clearGhostAfterUpdate();
         this.plugin.setStatus("idle", "Editor is not focused");
       }
     }
@@ -178,6 +190,10 @@ class CompletionController {
 
   destroy(): void {
     this.cancel(false);
+    if (this.deferredGhostClearTimer !== null) {
+      window.clearTimeout(this.deferredGhostClearTimer);
+      this.deferredGhostClearTimer = null;
+    }
     this.plugin.unregisterController(this);
   }
 
@@ -384,6 +400,15 @@ class CompletionController {
       this.view.state.selection.main.empty &&
       this.view.state.doc.toString() === snapshot.document
     );
+  }
+
+  private clearGhostAfterUpdate(): void {
+    if (this.deferredGhostClearTimer !== null) return;
+
+    this.deferredGhostClearTimer = window.setTimeout(() => {
+      this.deferredGhostClearTimer = null;
+      this.view.dispatch({ effects: setGhostText.of(null) });
+    }, 0);
   }
 
   private cancel(clearGhost: boolean): void {
