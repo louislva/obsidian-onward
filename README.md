@@ -6,6 +6,8 @@ Copilot-style sentence continuation for Obsidian:
 - quietly prefetches during that pause so model latency is mostly hidden;
 - supports literal next-token completion with Tinker's Qwen3.5 base models;
 - supports assistant-prefill completion with selected OpenRouter chat models;
+- tries models in a configurable fallback order across both services;
+- temporarily skips failing models with an exponential cooldown;
 - shows the continuation as gray ghost text;
 - reports the current model and request state in Obsidian's status bar;
 - accepts with **Tab** and dismisses with **Escape**;
@@ -18,11 +20,21 @@ note: it deduplicates spaces, supplies a missing prose space, attaches
 punctuation, and removes accidental spaces before punctuation. Newlines, tabs,
 and Markdown hard-break spaces are preserved.
 
-The default is `Qwen/Qwen3.5-35B-A3B-Base` on Tinker. Raw Tinker requests give
-the base model the note name and everything before the cursor, then request a
-literal continuation. OpenRouter prefill requests supply the whole note as
-context and finish with an assistant message containing everything before the
-cursor, prompting the model to continue its own text.
+The settings contain one ranked list mixing Tinker and OpenRouter models. The
+first model with an available API key that is not cooling down is tried first.
+If its request fails, the plugin immediately tries the next eligible model.
+The first failure cools that model down for 30 seconds. If it fails again
+immediately after the cooldown expires, the next cooldown doubles to 60
+seconds, then 2 minutes, 4 minutes, and so on, capped at 30 minutes. A successful
+request resets that model's failure history.
+
+The initial order starts with `Qwen/Qwen3.5-35B-A3B-Base` on Tinker. Existing
+installations migrate their previously selected model to the top and append the
+other choices underneath it. Raw Tinker requests give the base model the note
+name and everything before the cursor, then request a literal continuation.
+OpenRouter prefill requests supply the whole note as context and finish with an
+assistant message containing everything before the cursor, prompting the model
+to continue its own text.
 
 Available models:
 
@@ -40,18 +52,21 @@ that exact text. Opus 4.5 and Kimi use a native final-assistant prefill.
 The plugin first reads `TINKER_API_KEY` or `OPENROUTER_API_KEY` from the
 environment inherited by the Obsidian desktop process, according to the
 selected model. If Obsidian was launched from the macOS Dock, shell environment
-variables often are not inherited; in that case, paste the relevant key into
-**Settings → Community plugins → Inline Complete**.
+variables often are not inherited; in that case, paste the relevant keys into
+**Settings → Community plugins → Inline Complete** and rank the models with the
+up/down controls.
 
-API keys are never logged. The selected service receives note content whenever
-a completion request starts.
+API keys are never logged. The first eligible service receives note content
+whenever a completion request starts. If that request fails, later fallback
+services may receive the same note sequentially until one succeeds.
 
 ## Status indicator
 
-The bottom-right status item uses short model names such as `Qwen 35B`, `K2`,
-and `Opus 4.5`. It reports `waiting`, `generating`, `generated · shown`, or
-`generated · not shown`, plus `missing key` and `error` when a request cannot
-run. Hover it to see the full model name and a more specific explanation.
+The bottom-right status item uses the short name of the model currently being
+tried or whose suggestion is visible, such as `Qwen 35B`, `K2`, or `Opus 4.5`.
+It reports `waiting`, `generating`, `generated · shown`, or `generated · not
+shown`, plus `missing key` and `error` when a request cannot run. Hover it to
+see fallback and cooldown details.
 
 The Kimi K2 option uses the requested `moonshotai/kimi-k2::deepinfra` identifier
 and additionally locks OpenRouter routing to `deepinfra`, with provider fallback

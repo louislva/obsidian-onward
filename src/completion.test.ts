@@ -4,7 +4,12 @@ import {
   buildPrefillMessages,
   buildRawCompletionPrompt,
   canonicalizeCompletionPrefix,
+  DEFAULT_MODEL_PRIORITY,
+  FAILURE_COOLDOWN_BASE_MS,
+  FAILURE_COOLDOWN_MAX_MS,
   getCompletionModel,
+  nextModelFailureCooldown,
+  normalizeModelPriority,
   reconcileCompletionBoundary,
   requestStartDelay,
   sanitizeCompletion,
@@ -128,6 +133,89 @@ describe("requestStartDelay", () => {
   it("starts early enough for a result to land at the reveal time", () => {
     expect(requestStartDelay(2000, 1500)).toBe(500);
     expect(requestStartDelay(500, 1000)).toBe(0);
+  });
+});
+
+describe("model fallback configuration", () => {
+  it("migrates the legacy selected model to the top of the ranking", () => {
+    const priority = normalizeModelPriority(
+      undefined,
+      "anthropic/claude-opus-4.5",
+    );
+
+    expect(priority[0]).toBe("anthropic/claude-opus-4.5");
+    expect(priority).toHaveLength(DEFAULT_MODEL_PRIORITY.length);
+    expect(new Set(priority).size).toBe(DEFAULT_MODEL_PRIORITY.length);
+  });
+
+  it("keeps saved order, removes duplicates, and appends new models", () => {
+    const priority = normalizeModelPriority([
+      "anthropic/claude-opus-4.6",
+      "not-a-model",
+      "anthropic/claude-opus-4.6",
+      "Qwen/Qwen3.5-9B-Base",
+    ]);
+
+    expect(priority.slice(0, 2)).toEqual([
+      "anthropic/claude-opus-4.6",
+      "Qwen/Qwen3.5-9B-Base",
+    ]);
+    expect(priority).toHaveLength(DEFAULT_MODEL_PRIORITY.length);
+    expect(new Set(priority).size).toBe(DEFAULT_MODEL_PRIORITY.length);
+  });
+});
+
+describe("model failure cooldown", () => {
+  it("starts with a 30-second cooldown", () => {
+    const state = nextModelFailureCooldown(undefined, 1_000, 2_000);
+
+    expect(state.level).toBe(0);
+    expect(state.cooldownMs).toBe(FAILURE_COOLDOWN_BASE_MS);
+    expect(state.cooldownUntil).toBe(
+      2_000 + FAILURE_COOLDOWN_BASE_MS,
+    );
+  });
+
+  it("doubles when the model fails immediately after its cooldown", () => {
+    const first = nextModelFailureCooldown(undefined, 1_000, 2_000);
+    const second = nextModelFailureCooldown(
+      first,
+      first.cooldownUntil + 1,
+      first.cooldownUntil + 2_000,
+    );
+    const third = nextModelFailureCooldown(
+      second,
+      second.cooldownUntil + 1,
+      second.cooldownUntil + 2_000,
+    );
+
+    expect(second.cooldownMs).toBe(FAILURE_COOLDOWN_BASE_MS * 2);
+    expect(third.cooldownMs).toBe(FAILURE_COOLDOWN_BASE_MS * 4);
+  });
+
+  it("returns to the base cooldown after a stable recovery window", () => {
+    const first = nextModelFailureCooldown(undefined, 1_000, 2_000);
+    const recoveredFailure = nextModelFailureCooldown(
+      first,
+      first.cooldownUntil + 30_001,
+      first.cooldownUntil + 31_000,
+    );
+
+    expect(recoveredFailure.level).toBe(0);
+    expect(recoveredFailure.cooldownMs).toBe(FAILURE_COOLDOWN_BASE_MS);
+  });
+
+  it("caps exponential cooldown at 30 minutes", () => {
+    let state = nextModelFailureCooldown(undefined, 1_000, 2_000);
+    for (let index = 0; index < 12; index += 1) {
+      state = nextModelFailureCooldown(
+        state,
+        state.cooldownUntil + 1,
+        state.cooldownUntil + 2,
+      );
+    }
+
+    expect(state.cooldownMs).toBe(FAILURE_COOLDOWN_MAX_MS);
   });
 });
 

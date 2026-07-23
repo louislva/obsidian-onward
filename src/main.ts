@@ -23,21 +23,24 @@ import {
 } from "obsidian";
 import {
   buildCompletionRequest,
-  COMPLETION_MODELS,
-  DEFAULT_MODEL_ID,
+  DEFAULT_MODEL_PRIORITY,
   getCompletionModel,
+  nextModelFailureCooldown,
+  normalizeModelPriority,
   reconcileCompletionBoundary,
   requestStartDelay,
   sanitizeCompletion,
   shouldClearGhostText,
   type CompletionBackend,
+  type CompletionModel,
   type CompletionSnapshot,
+  type ModelFailureCooldown,
 } from "./completion";
 
 interface InlineCompleteSettings {
   apiKey: string;
   tinkerApiKey: string;
-  model: string;
+  modelPriority: string[];
   pauseDelayMs: number;
   requestHeadStartMs: number;
   maxTokens: number;
@@ -49,7 +52,7 @@ interface InlineCompleteSettings {
 const DEFAULT_SETTINGS: InlineCompleteSettings = {
   apiKey: "",
   tinkerApiKey: "",
-  model: DEFAULT_MODEL_ID,
+  modelPriority: DEFAULT_MODEL_PRIORITY,
   pauseDelayMs: 2000,
   requestHeadStartMs: 1500,
   maxTokens: 64,
@@ -62,6 +65,7 @@ interface GhostText {
   pos: number;
   replaceFrom: number;
   text: string;
+  modelId: string;
 }
 
 interface CompletionResponse {
@@ -71,6 +75,16 @@ interface CompletionResponse {
   }>;
   error?: { message?: string };
   detail?: string;
+}
+
+interface ModelCircuitState extends ModelFailureCooldown {
+  lastError: string;
+}
+
+interface FailedModelAttempt {
+  model: CompletionModel;
+  message: string;
+  cooldownMs: number;
 }
 
 type CompletionStatus =
@@ -218,11 +232,15 @@ class CompletionController {
     }
 
     const hadSuggestion = this.suggestion !== null;
+    const suggestionModel = this.suggestion
+      ? getCompletionModel(this.suggestion.modelId)
+      : undefined;
     this.dismissedUntilChange = true;
     this.cancel(true);
     this.plugin.setStatus(
       hadSuggestion ? "hidden" : "idle",
       hadSuggestion ? "Suggestion dismissed" : "Completion cancelled",
+      suggestionModel,
     );
     return true;
   }
@@ -272,10 +290,9 @@ class CompletionController {
   private async request(): Promise<void> {
     if (!this.eligible()) return;
 
-    const model = this.plugin.getSelectedModel();
-    const apiKey = this.plugin.getApiKey(model.backend);
-    if (!apiKey) {
-      this.plugin.notifyMissingKey(model.backend);
+    const candidates = this.plugin.getEligibleModels();
+    if (candidates.length === 0) {
+      this.plugin.notifyNoEligibleModels();
       return;
     }
 
@@ -290,56 +307,118 @@ class CompletionController {
     const generation = ++this.generation;
     const controller = new AbortController();
     this.abortController = controller;
-    this.plugin.setStatus("generating", `Requesting ${model.label}`);
 
     try {
-      const isTinker = model.backend === "tinker";
-      const request = buildCompletionRequest(model, snapshot, {
-        maxTokens: this.plugin.settings.maxTokens,
-        temperature: this.plugin.settings.temperature,
-        routeByLatency: this.plugin.settings.routeByLatency,
-      });
-      const response = await fetch(request.url, {
-          method: "POST",
-          signal: controller.signal,
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-            ...(!isTinker
-              ? {
-                  "HTTP-Referer": "https://obsidian.md",
-                  "X-Title": "Obsidian Inline Complete",
-                }
-              : {}),
-          },
-          body: JSON.stringify(request.body),
-        });
+      const failures: FailedModelAttempt[] = [];
+      let result:
+        | {
+            model: CompletionModel;
+            raw: string;
+          }
+        | undefined;
 
-      const payload = (await response.json()) as CompletionResponse;
-      if (!response.ok) {
-        const service = isTinker ? "Tinker" : "OpenRouter";
-        throw new Error(
-          payload.error?.message ??
-            payload.detail ??
-            `${service} returned ${response.status}`,
+      for (const model of candidates) {
+        if (controller.signal.aborted || generation !== this.generation) {
+          return;
+        }
+        if (this.plugin.isModelCoolingDown(model.id)) continue;
+
+        const apiKey = this.plugin.getApiKey(model.backend);
+        if (!apiKey) continue;
+
+        this.plugin.setStatus(
+          "generating",
+          failures.length > 0
+            ? `Trying ${model.label} after ${failures.length} failed fallback attempt${failures.length === 1 ? "" : "s"}`
+            : `Requesting ${model.label}`,
+          model,
         );
+        const attemptStartedAt = Date.now();
+
+        try {
+          const isTinker = model.backend === "tinker";
+          const request = buildCompletionRequest(model, snapshot, {
+            maxTokens: this.plugin.settings.maxTokens,
+            temperature: this.plugin.settings.temperature,
+            routeByLatency: this.plugin.settings.routeByLatency,
+          });
+          const response = await fetch(request.url, {
+            method: "POST",
+            signal: controller.signal,
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+              ...(!isTinker
+                ? {
+                    "HTTP-Referer": "https://obsidian.md",
+                    "X-Title": "Obsidian Inline Complete",
+                  }
+                : {}),
+            },
+            body: JSON.stringify(request.body),
+          });
+
+          let payload: CompletionResponse;
+          try {
+            payload = (await response.json()) as CompletionResponse;
+          } catch {
+            throw new Error(
+              `${isTinker ? "Tinker" : "OpenRouter"} returned an invalid response`,
+            );
+          }
+          if (!response.ok) {
+            const service = isTinker ? "Tinker" : "OpenRouter";
+            throw new Error(
+              payload.error?.message ??
+                payload.detail ??
+                `${service} returned ${response.status}`,
+            );
+          }
+
+          const raw =
+            payload.choices?.[0]?.message?.content ??
+            payload.choices?.[0]?.text ??
+            "";
+          if (!raw) {
+            throw new Error("The model returned no completion text");
+          }
+
+          this.plugin.recordModelSuccess(model.id);
+          result = {
+            model,
+            raw,
+          };
+          break;
+        } catch (error) {
+          if (controller.signal.aborted) return;
+
+          failures.push(
+            this.plugin.recordModelFailure(
+              model,
+              attemptStartedAt,
+              error,
+            ),
+          );
+        }
       }
 
+      if (!result) {
+        this.plugin.notifyFallbacksExhausted(failures);
+        return;
+      }
       if (controller.signal.aborted || generation !== this.generation) {
         return;
       }
+      const { model, raw } = result;
       if (!this.snapshotStillCurrent(snapshot)) {
         this.plugin.setStatus(
           "hidden",
           "A completion arrived after the document changed",
+          model,
         );
         return;
       }
 
-      const raw =
-        payload.choices?.[0]?.message?.content ??
-        payload.choices?.[0]?.text ??
-        "";
       const text = sanitizeCompletion(raw, snapshot);
       if (!text) {
         this.plugin.setStatus(
@@ -347,6 +426,7 @@ class CompletionController {
           raw
             ? "The generated text was filtered as empty, duplicated, or meta commentary"
             : "The model returned no completion text",
+          model,
         );
         return;
       }
@@ -355,6 +435,7 @@ class CompletionController {
         this.plugin.setStatus(
           "hidden",
           "The completion contained only redundant boundary whitespace",
+          model,
         );
         return;
       }
@@ -367,6 +448,7 @@ class CompletionController {
           this.plugin.setStatus(
             "hidden",
             "A valid completion was generated but was no longer eligible to display",
+            model,
           );
           return;
         }
@@ -374,13 +456,22 @@ class CompletionController {
           pos: snapshot.cursor,
           replaceFrom: insertion.replaceFrom,
           text: insertion.text,
+          modelId: model.id,
         };
         this.view.dispatch({
           effects: setGhostText.of(this.suggestion),
         });
         this.plugin.setStatus(
           "shown",
-          `Showing ${insertion.text.length} generated characters`,
+          [
+            `Showing ${insertion.text.length} generated characters`,
+            failures.length > 0
+              ? `Fallback succeeded after ${failures.map((failure) => failure.model.shortName).join(", ")} failed`
+              : "",
+          ]
+            .filter(Boolean)
+            .join(". "),
+          model,
         );
       };
 
@@ -388,7 +479,10 @@ class CompletionController {
       if (remaining > 0) {
         this.plugin.setStatus(
           "waiting",
-          "Completion generated; waiting for the reveal time",
+          failures.length > 0
+            ? `Fallback completion generated by ${model.label}; waiting for the reveal time`
+            : "Completion generated; waiting for the reveal time",
+          model,
         );
         this.revealTimer = window.setTimeout(() => {
           this.revealTimer = null;
@@ -451,6 +545,7 @@ export default class InlineCompletePlugin extends Plugin {
   private missingKeyNotified = false;
   private lastError = "";
   private lastErrorAt = 0;
+  private modelCircuits = new Map<string, ModelCircuitState>();
   private statusBarItem: HTMLElement | null = null;
 
   async onload(): Promise<void> {
@@ -509,14 +604,30 @@ export default class InlineCompletePlugin extends Plugin {
     this.addSettingTab(new InlineCompleteSettingTab(this.app, this));
   }
 
-  getSelectedModel() {
-    return getCompletionModel(this.settings.model);
+  getRankedModels(): CompletionModel[] {
+    return this.settings.modelPriority.map(getCompletionModel);
   }
 
-  setStatus(status: CompletionStatus, detail?: string): void {
+  getEligibleModels(now = Date.now()): CompletionModel[] {
+    return this.getRankedModels().filter(
+      (model) =>
+        Boolean(this.getApiKey(model.backend)) &&
+        !this.isModelCoolingDown(model.id, now),
+    );
+  }
+
+  getPreferredModel(): CompletionModel {
+    return this.getEligibleModels()[0] ?? this.getRankedModels()[0];
+  }
+
+  setStatus(
+    status: CompletionStatus,
+    detail?: string,
+    statusModel?: CompletionModel,
+  ): void {
     if (!this.statusBarItem) return;
 
-    const model = this.getSelectedModel();
+    const model = statusModel ?? this.getPreferredModel();
     this.statusBarItem.textContent =
       `${model.shortName} · ${STATUS_LABELS[status]}`;
     this.statusBarItem.dataset.state = status;
@@ -557,32 +668,117 @@ export default class InlineCompletePlugin extends Plugin {
     for (const controller of this.liveControllers) controller.refresh();
   }
 
-  async setModel(model: string): Promise<void> {
-    this.settings.model = getCompletionModel(model).id;
+  async moveModel(modelId: string, direction: -1 | 1): Promise<void> {
+    const index = this.settings.modelPriority.indexOf(modelId);
+    const nextIndex = index + direction;
+    if (
+      index < 0 ||
+      nextIndex < 0 ||
+      nextIndex >= this.settings.modelPriority.length
+    ) {
+      return;
+    }
+
+    const priority = [...this.settings.modelPriority];
+    [priority[index], priority[nextIndex]] = [
+      priority[nextIndex],
+      priority[index],
+    ];
+    this.settings.modelPriority = priority;
     await this.saveSettings();
-    this.setStatus("idle", "Model changed");
+    this.setStatus("idle", "Model fallback order changed");
     for (const controller of this.liveControllers) controller.refresh();
   }
 
-  notifyMissingKey(backend: CompletionBackend): void {
-    const service = backend === "tinker" ? "Tinker" : "OpenRouter";
-    const variable =
-      backend === "tinker" ? "TINKER_API_KEY" : "OPENROUTER_API_KEY";
-    this.setStatus(
-      "missing-key",
-      `Set ${variable} or save a ${service} key in plugin settings`,
+  isModelCoolingDown(modelId: string, now = Date.now()): boolean {
+    const state = this.modelCircuits.get(modelId);
+    return state !== undefined && state.cooldownUntil > now;
+  }
+
+  recordModelSuccess(modelId: string): void {
+    this.modelCircuits.delete(modelId);
+    this.missingKeyNotified = false;
+  }
+
+  recordModelFailure(
+    model: CompletionModel,
+    attemptStartedAt: number,
+    error: unknown,
+  ): FailedModelAttempt {
+    const message = error instanceof Error ? error.message : String(error);
+    const cooldown = nextModelFailureCooldown(
+      this.modelCircuits.get(model.id),
+      attemptStartedAt,
+      Date.now(),
     );
+    this.modelCircuits.set(model.id, {
+      ...cooldown,
+      lastError: message,
+    });
+    return { model, message, cooldownMs: cooldown.cooldownMs };
+  }
+
+  notifyNoEligibleModels(): void {
+    const rankedModels = this.getRankedModels();
+    const keyedModels = rankedModels.filter((model) =>
+      Boolean(this.getApiKey(model.backend)),
+    );
+    if (keyedModels.length === 0) {
+      this.setStatus(
+        "missing-key",
+        "No ranked model has an available API key. Set TINKER_API_KEY or OPENROUTER_API_KEY, or save keys in plugin settings.",
+      );
+    } else {
+      const now = Date.now();
+      const cooling = keyedModels
+        .map((model) => {
+          const state = this.modelCircuits.get(model.id);
+          if (!state || state.cooldownUntil <= now) return "";
+          const seconds = Math.max(
+            1,
+            Math.ceil((state.cooldownUntil - now) / 1000),
+          );
+          return `${model.shortName} ${seconds}s (${state.lastError})`;
+        })
+        .filter(Boolean);
+      this.setStatus(
+        "error",
+        `All keyed models are cooling down: ${cooling.join("; ")}`,
+        keyedModels[0],
+      );
+    }
+
     if (this.missingKeyNotified) return;
     this.missingKeyNotified = true;
     new Notice(
-      `Inline Complete needs ${variable} or a ${service} key in its settings.`,
+      keyedModels.length === 0
+        ? "Inline Complete needs a Tinker or OpenRouter API key."
+        : "Inline Complete: all configured models are temporarily cooling down.",
       8000,
     );
   }
 
-  notifyRequestError(error: unknown): void {
+  notifyFallbacksExhausted(failures: FailedModelAttempt[]): void {
+    if (failures.length === 0) {
+      this.notifyNoEligibleModels();
+      return;
+    }
+
+    const summary = failures
+      .map((failure) => {
+        const seconds = Math.ceil(failure.cooldownMs / 1000);
+        return `${failure.model.shortName}: ${failure.message} (retry in ${seconds}s)`;
+      })
+      .join("; ");
+    this.notifyRequestError(
+      new Error(`All model fallbacks failed. ${summary}`),
+      failures.at(-1)?.model,
+    );
+  }
+
+  notifyRequestError(error: unknown, model?: CompletionModel): void {
     const message = error instanceof Error ? error.message : String(error);
-    this.setStatus("error", message);
+    this.setStatus("error", message, model);
     const now = Date.now();
     if (message === this.lastError && now - this.lastErrorAt < 30_000) return;
 
@@ -592,8 +788,15 @@ export default class InlineCompletePlugin extends Plugin {
   }
 
   async loadSettings(): Promise<void> {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-    this.settings.model = getCompletionModel(this.settings.model).id;
+    const saved = (await this.loadData()) as
+      | (Partial<InlineCompleteSettings> & { model?: unknown })
+      | null;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, saved ?? {});
+    this.settings.modelPriority = normalizeModelPriority(
+      saved?.modelPriority,
+      saved?.model,
+    );
+    delete (this.settings as InlineCompleteSettings & { model?: unknown }).model;
   }
 
   async saveSettings(): Promise<void> {
@@ -624,7 +827,7 @@ class InlineCompleteSettingTab extends PluginSettingTab {
       text: [
         `Tinker key: ${hasTinkerKey ? "available" : "missing"}.`,
         `OpenRouter key: ${hasOpenRouterKey ? "available" : "missing"}.`,
-        "Environment variables take precedence over saved keys. The selected service receives the active note when a completion is requested.",
+        "Environment variables take precedence over saved keys. Fallback services may receive the active note sequentially when an earlier model fails.",
       ].join(" "),
     });
 
@@ -669,29 +872,51 @@ class InlineCompleteSettingTab extends PluginSettingTab {
       });
     tinkerApiSetting.settingEl.addClass("inline-complete-secret");
 
-    new Setting(containerEl)
-      .setName("Model")
-      .setDesc(
-        "Tinker choices use raw text completion. OpenRouter choices continue a prefilled assistant response.",
-      )
-      .addDropdown((dropdown) => {
-        for (const model of COMPLETION_MODELS) {
-          dropdown.addOption(model.id, model.label);
-        }
-        dropdown
-          .setValue(this.plugin.settings.model)
-          .onChange(async (value) => {
-            await this.plugin.setModel(value);
-            this.display();
-          });
-      });
+    containerEl.createEl("h3", { text: "Model fallback order" });
+    containerEl.createEl("p", {
+      cls: "inline-complete-settings-note",
+      text: "The first eligible model is tried first. If it fails, the next model is tried immediately. Failed models cool down for 30 seconds; a failure immediately after recovery doubles that model's cooldown, up to 30 minutes.",
+    });
 
-    if (this.plugin.getSelectedModel().providerOnly) {
-      containerEl.createEl("p", {
-        cls: "inline-complete-settings-note",
-        text: "This Kimi option is locked to DeepInfra with provider fallback disabled, so it will fail rather than silently use another host.",
-      });
-    }
+    const rankedModels = this.plugin.getRankedModels();
+    rankedModels.forEach((model, index) => {
+      const backend =
+        model.backend === "tinker"
+          ? "Tinker raw completion"
+          : model.prefillMode === "assistant-history"
+            ? "OpenRouter emulated prefill"
+            : "OpenRouter prefill";
+      const modelSetting = new Setting(containerEl)
+        .setName(`${index + 1}. ${model.shortName}`)
+        .setDesc(`${backend} · ${model.apiModel}`);
+
+      modelSetting.addExtraButton((button) =>
+        button
+          .setIcon("chevron-up")
+          .setTooltip(`Move ${model.shortName} up`)
+          .setDisabled(index === 0)
+          .onClick(async () => {
+            await this.plugin.moveModel(model.id, -1);
+            this.display();
+          }),
+      );
+      modelSetting.addExtraButton((button) =>
+        button
+          .setIcon("chevron-down")
+          .setTooltip(`Move ${model.shortName} down`)
+          .setDisabled(index === rankedModels.length - 1)
+          .onClick(async () => {
+            await this.plugin.moveModel(model.id, 1);
+            this.display();
+          }),
+      );
+      modelSetting.settingEl.addClass("inline-complete-model-rank");
+    });
+
+    containerEl.createEl("p", {
+      cls: "inline-complete-settings-note",
+      text: "K2 remains locked to DeepInfra with OpenRouter provider fallback disabled. The plugin-level ranking handles fallback to a different model explicitly.",
+    });
 
     new Setting(containerEl)
       .setName("Pause before showing")

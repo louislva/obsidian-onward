@@ -54,12 +54,79 @@ export const COMPLETION_MODELS: CompletionModel[] = [
 ];
 
 export const DEFAULT_MODEL_ID = COMPLETION_MODELS[0].id;
+export const DEFAULT_MODEL_PRIORITY = COMPLETION_MODELS.map(
+  (model) => model.id,
+);
 
 export function getCompletionModel(id: string): CompletionModel {
   return (
     COMPLETION_MODELS.find((candidate) => candidate.id === id) ??
     COMPLETION_MODELS[0]
   );
+}
+
+export function normalizeModelPriority(
+  priority: unknown,
+  legacyModel?: unknown,
+): string[] {
+  const validIds = new Set(DEFAULT_MODEL_PRIORITY);
+  const normalized: string[] = [];
+  const append = (candidate: unknown): void => {
+    if (
+      typeof candidate === "string" &&
+      validIds.has(candidate) &&
+      !normalized.includes(candidate)
+    ) {
+      normalized.push(candidate);
+    }
+  };
+
+  if (Array.isArray(priority)) {
+    for (const candidate of priority) append(candidate);
+  } else {
+    append(legacyModel);
+  }
+
+  for (const modelId of DEFAULT_MODEL_PRIORITY) append(modelId);
+  return normalized;
+}
+
+export const FAILURE_COOLDOWN_BASE_MS = 30_000;
+export const FAILURE_COOLDOWN_MAX_MS = 30 * 60_000;
+export const FAILURE_RECOVERY_WINDOW_MS = 30_000;
+
+export interface ModelFailureCooldown {
+  level: number;
+  cooldownUntil: number;
+  cooldownMs: number;
+}
+
+export function nextModelFailureCooldown(
+  previous: ModelFailureCooldown | undefined,
+  attemptStartedAt: number,
+  failedAt: number,
+): ModelFailureCooldown {
+  const failedSoonAfterRecovery =
+    previous !== undefined &&
+    attemptStartedAt >= previous.cooldownUntil &&
+    attemptStartedAt <=
+      previous.cooldownUntil + FAILURE_RECOVERY_WINDOW_MS;
+  const maximumLevel = Math.ceil(
+    Math.log2(FAILURE_COOLDOWN_MAX_MS / FAILURE_COOLDOWN_BASE_MS),
+  );
+  const level = failedSoonAfterRecovery
+    ? Math.min(previous.level + 1, maximumLevel)
+    : 0;
+  const cooldownMs = Math.min(
+    FAILURE_COOLDOWN_BASE_MS * 2 ** level,
+    FAILURE_COOLDOWN_MAX_MS,
+  );
+
+  return {
+    level,
+    cooldownMs,
+    cooldownUntil: failedAt + cooldownMs,
+  };
 }
 
 export interface CompletionMessage {

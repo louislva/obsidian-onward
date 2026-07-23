@@ -73,12 +73,21 @@ plugin. Treat this file as the project handoff for future agents.
 - The bottom-right Obsidian status item uses short model names and reports:
   `waiting`, `generating`, `generated · shown`,
   `generated · not shown`, `missing key`, or `error`.
+- Models are configured as one cross-provider `modelPriority` ranking. Skip
+  entries with missing keys or active circuit-breaker cooldowns. A failed
+  request falls through immediately; a successful request resets that model's
+  failure state.
+- The first request failure cools a model for 30 seconds. A failure from an
+  attempt started within 30 seconds after recovery doubles its cooldown, capped
+  at 30 minutes. Keep these calculations pure in `completion.ts`.
 - Hovering the status item shows the full model label and a specific reason.
   Preserve this diagnostic detail when modifying request handling.
 
 ## Models and API semantics
 
-The model dropdown is intentionally curated in `COMPLETION_MODELS`.
+The model ranking is intentionally curated in `COMPLETION_MODELS`. Existing
+saved `model` dropdown values are migrated to the top of `modelPriority`; all
+new or omitted curated models are appended so the ranking remains complete.
 
 ### Tinker raw completion
 
