@@ -31,15 +31,22 @@ seconds, then 2 minutes, 4 minutes, and so on, capped at 30 minutes. A successfu
 request resets that model's failure history.
 
 The initial order starts with `Qwen/Qwen3.5-35B-A3B-Base` on Tinker. Existing
-installations migrate their previously selected model to the top and append the
+installations migrate their saved single-model choice to the top and append the
 other choices underneath it. Prompts first read yesterday's and today's
 journals from the configurable `Journal` folder when they exist, excluding the
 active file. They then simulate readable retrieval of direct web links and
 vault links from the active note. Webpages are reduced to Reader View-style
-Markdown and linked vault files are resolved through Obsidian. The prompt ends
-with the active file through the cursor. OpenRouter models receive real
-user/assistant command-response pairs; raw Tinker models receive the same
-session as one causal transcript.
+Markdown and linked vault files are resolved through Obsidian.
+
+The default line-aware layout presents the lines before the cursor line, then
+the lines following it, using synthetic `sed -n` command/response pairs. The
+final request selects only the cursor line, with the assistant prefilled
+through the cursor. This gives completion models both preceding and later
+document context while leaving the target line as the causal continuation.
+Turning off **Line-aware prompt layout** restores a single `vault.read`
+response containing the active file through the cursor. OpenRouter models
+receive real role pairs; raw Tinker models receive the same session as one
+causal transcript.
 
 Available models:
 

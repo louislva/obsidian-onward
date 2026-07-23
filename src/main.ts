@@ -56,6 +56,7 @@ interface InlineCompleteSettings {
   temperature: number;
   enabled: boolean;
   routeByLatency: boolean;
+  lineContextEnabled: boolean;
   linkedContextEnabled: boolean;
   linkedContextMaxCharacters: number;
   recentJournalContextEnabled: boolean;
@@ -72,6 +73,7 @@ const DEFAULT_SETTINGS: InlineCompleteSettings = {
   temperature: 0.15,
   enabled: true,
   routeByLatency: true,
+  lineContextEnabled: true,
   linkedContextEnabled: true,
   linkedContextMaxCharacters:
     DEFAULT_PROMPT_CONTEXT_OPTIONS.maxTotalCharacters,
@@ -438,6 +440,8 @@ class CompletionController {
             temperature: this.plugin.settings.temperature,
             routeByLatency: this.plugin.settings.routeByLatency,
             promptContext,
+            lineContextEnabled:
+              this.plugin.settings.lineContextEnabled,
           });
           this.plugin.rememberPrompt(model, request);
           const response = await fetch(request.url, {
@@ -1227,6 +1231,20 @@ class InlineCompleteSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.routeByLatency)
           .onChange(async (value) => {
             this.plugin.settings.routeByLatency = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Line-aware prompt layout")
+      .setDesc(
+        "Read the lines before and after the cursor line as context, then prefill only the cursor line. Turn this off to send the active file through the cursor as one continuous prefill.",
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.lineContextEnabled)
+          .onChange(async (value) => {
+            this.plugin.settings.lineContextEnabled = value;
             await this.plugin.saveSettings();
           }),
       );

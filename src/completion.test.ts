@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildActiveLinePrompt,
   buildCompletionRequest,
   buildPrefillMessages,
   buildRawCompletionPrompt,
@@ -52,6 +53,78 @@ describe("completion request context", () => {
     expect(messages.at(-2)).toEqual({
       role: "user",
       content: 'vault.read "Ideas.md"',
+    });
+  });
+
+  it("reorders surrounding lines before a current-line prefill", () => {
+    const lineSnapshot = {
+      title: "Ideas",
+      path: "Drafts/Ideas.md",
+      document:
+        "# Heading\nThe cat sat down.\n\nA later paragraph.",
+      cursor: "# Heading\nThe cat".length,
+    };
+
+    expect(buildActiveLinePrompt(lineSnapshot)).toEqual({
+      precedingCommand:
+        "sed -n '1,1p' \"Drafts/Ideas.md\"",
+      precedingLines: "# Heading\n",
+      followingCommand:
+        "sed -n '3,$p' \"Drafts/Ideas.md\"",
+      followingLines: "\nA later paragraph.",
+      currentLineCommand:
+        "sed -n '2p' \"Drafts/Ideas.md\"",
+      currentLinePrefix: "The cat",
+    });
+
+    expect(
+      buildRawCompletionPrompt(lineSnapshot, undefined, true),
+    ).toBe(
+      [
+        'user: sed -n \'1,1p\' "Drafts/Ideas.md"',
+        "assistant: # Heading\n",
+        'user: sed -n \'3,$p\' "Drafts/Ideas.md"',
+        "assistant: \nA later paragraph.",
+        'user: sed -n \'2p\' "Drafts/Ideas.md"',
+        "assistant: The cat",
+      ].join("\n\n"),
+    );
+
+    const messages = buildPrefillMessages(
+      lineSnapshot,
+      "native",
+      undefined,
+      true,
+    );
+    expect(messages.slice(-6)).toEqual([
+      {
+        role: "user",
+        content: 'sed -n \'1,1p\' "Drafts/Ideas.md"',
+      },
+      { role: "assistant", content: "# Heading\n" },
+      {
+        role: "user",
+        content: 'sed -n \'3,$p\' "Drafts/Ideas.md"',
+      },
+      { role: "assistant", content: "\nA later paragraph." },
+      {
+        role: "user",
+        content: 'sed -n \'2p\' "Drafts/Ideas.md"',
+      },
+      { role: "assistant", content: "The cat" },
+    ]);
+  });
+
+  it("omits empty surrounding ranges at the file boundaries", () => {
+    expect(
+      buildActiveLinePrompt({
+        title: "One line",
+        document: "The cat",
+        cursor: 7,
+      }),
+    ).toEqual({
+      currentLineCommand: "sed -n '1p' \"One line.md\"",
+      currentLinePrefix: "The cat",
     });
   });
 
@@ -165,6 +238,35 @@ describe("completion request context", () => {
       only: ["deepinfra"],
       allow_fallbacks: false,
     });
+  });
+
+  it("passes line-aware layout through request construction", () => {
+    const lineSnapshot = {
+      title: "Ideas",
+      document: "Before\nThe cat\nAfter",
+      cursor: "Before\nThe cat".length,
+    };
+    const request = buildCompletionRequest(
+      getCompletionModel("anthropic/claude-opus-4.5"),
+      lineSnapshot,
+      {
+        maxTokens: 48,
+        temperature: 0.1,
+        routeByLatency: true,
+        lineContextEnabled: true,
+      },
+    );
+
+    expect(request.body.messages?.slice(-2)).toEqual([
+      {
+        role: "user",
+        content: 'sed -n \'2p\' "Ideas.md"',
+      },
+      { role: "assistant", content: "The cat" },
+    ]);
+    expect(request.body.messages?.at(0)?.content).toContain(
+      "lines surrounding one target line",
+    );
   });
 
   it("formats the exact model-facing prompt for inspection", () => {

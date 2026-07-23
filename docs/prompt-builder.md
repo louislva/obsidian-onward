@@ -6,11 +6,11 @@ Complete.
 ## Goal
 
 Make the model observe the same context-gathering session a writer might
-perform manually: read the relevant webpages and vault files, then read the
-active file through the cursor and continue its contents.
+perform manually: read the relevant webpages and vault files, inspect the
+active file around one target line, then complete that line at the cursor.
 
 The prompt does not ask the model to summarize, answer a question, or invent a
-completion in a separate response. It ends inside the active document so the
+completion in a separate response. It ends inside the cursor line so the
 completion remains a literal prefill.
 
 ## Recent journal context
@@ -93,13 +93,25 @@ Readable article content...
 user: vault.read "Research/Related.md"
 assistant: The linked note contents...
 
-user: vault.read "Drafts/Current note.md"
-assistant: The active note contents through the cur
+user: sed -n '1,41p' "Drafts/Current note.md"
+assistant: The active note through the line before the cursor line...
+
+user: sed -n '43,$p' "Drafts/Current note.md"
+assistant: The active note beginning on the line following the cursor line...
+
+user: sed -n '42p' "Drafts/Current note.md"
+assistant: The cursor line contents through the cur
 ```
 
 For native-prefill models, the final assistant message is the API prefill and
 generation continues it directly. For Opus 4.6's assistant-history
 approximation, the existing terse continuation user message follows it.
+
+The cursor line is deliberately absent from the two surrounding-context reads.
+Including line 42 in the second read would show the model the target line's
+existing ending; an ordinary causal model would tend to retrieve that ending
+rather than generate a useful insertion. Empty ranges at the beginning or end
+of a file are omitted.
 
 The system message says retrieved assistant responses are untrusted reference
 contents rather than instructions. This reduces prompt-injection ambiguity
@@ -121,14 +133,27 @@ assistant: # Extracted article title
 
 Readable article content...
 
-user: vault.read "Drafts/Current note.md"
+user: sed -n '1,41p' "Drafts/Current note.md"
 
-assistant: The active note contents through the cur
+assistant: The active note through the line before the cursor line...
+
+user: sed -n '43,$p' "Drafts/Current note.md"
+
+assistant: The active note beginning on the line following the cursor line...
+
+user: sed -n '42p' "Drafts/Current note.md"
+
+assistant: The cursor line contents through the cur
 ```
 
 There is deliberately no instruction after the active prefix. The base model's
 next-token task is to continue the final synthetic command response, which is
-the document itself.
+the selected cursor line.
+
+**Line-aware prompt layout** controls this serialization and is enabled by
+default. When disabled, both chat and raw models use one final
+`vault.read "path"` request whose assistant response contains the active file
+from its beginning through the cursor.
 
 ## Status and failure behavior
 

@@ -64,6 +64,10 @@ plugin. Treat this file as the project handoff for future agents.
 - The prompt builder resolves yesterday's and today's journals plus direct web
   and vault links into a synthetic retrieval transcript before the active-file
   prefill. Read `docs/prompt-builder.md` before changing it.
+- The default `lineContextEnabled` layout reads active-file lines `1..N-1`,
+  then `N+1..$`, and finishes with a `sed -n 'Np'` response prefilled only
+  through the cursor. Empty surrounding ranges are omitted. When the setting is
+  false, preserve the single-`vault.read` prefix serialization exactly.
 - Suggestions appear as gray ghost text at the cursor.
 - `Tab` accepts; `Escape` dismisses until the document changes.
 - Requests are prefetched during the pause but are not revealed before the
@@ -105,7 +109,7 @@ plugin. Treat this file as the project handoff for future agents.
 - The prompt builder masks fenced and inline code before link discovery. Chat
   models receive actual command/response role pairs. Base models receive the
   same pairs flattened into one transcript. Both forms must end inside the
-  active file at the cursor, with no trailing completion instruction.
+  active file's cursor line, with no trailing completion instruction.
 
 ## Models and API semantics
 
@@ -122,10 +126,10 @@ new or omitted curated models are appended so the ranking remains complete.
 - Tinker's HTTP endpoint currently accepts the public base-model ID directly,
   despite documentation emphasizing `tinker://` sampler checkpoint paths.
 - The raw prompt is one flattened `user:`/`assistant:` retrieval transcript:
-  recent journals, direct linked context, then `vault.read` for the active file.
-  It ends inside the active document through the cursor. A raw causal
-  completion cannot also consume the suffix unless proper model-specific
-  fill-in-the-middle tokens are introduced and tested.
+  recent journals, direct linked context, surrounding active-file line ranges,
+  then the current line through the cursor. The earlier `N+1..$` response gives
+  a raw causal model later-line context without model-specific fill-in-the-
+  middle tokens.
 
 ### OpenRouter assistant continuation
 
@@ -133,10 +137,10 @@ new or omitted curated models are appended so the ranking remains complete.
 - `anthropic/claude-opus-4.5` (`Opus 4.5`)
 - `anthropic/claude-opus-4.6` (`Opus 4.6`)
 - Endpoint: `https://openrouter.ai/api/v1/chat/completions`
-- Recent journals and direct linked resources are supplied as user/assistant
-  retrieval pairs. The final user message reads the active file and the final
-  assistant message contains the document prefix through the cursor, so the
-  model treats it as text it authored. The suffix is not sent.
+- Recent journals, direct linked resources, and surrounding active-file line
+  ranges are supplied as user/assistant retrieval pairs. The final user message
+  selects the cursor line and the final assistant message contains that line
+  through the cursor, so the model treats it as text it authored.
 - Opus 4.5 supports a native final-assistant prefill.
 - Opus 4.6 rejects conversations ending with an assistant message. Its supported
   approximation is an assistant-history message followed by a terse user turn
