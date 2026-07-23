@@ -16,6 +16,7 @@ import {
 import {
   App,
   MarkdownView,
+  Modal,
   Notice,
   Plugin,
   PluginSettingTab,
@@ -29,6 +30,7 @@ import type { PromptContext } from "./prompt-format";
 import {
   buildCompletionRequest,
   DEFAULT_MODEL_PRIORITY,
+  formatCompletionPrompt,
   getCompletionModel,
   nextModelFailureCooldown,
   normalizeModelPriority,
@@ -38,7 +40,9 @@ import {
   shouldClearGhostText,
   type CompletionBackend,
   type CompletionModel,
+  type CompletionRequest,
   type CompletionSnapshot,
+  type FormattedCompletionPrompt,
   type ModelFailureCooldown,
 } from "./completion";
 
@@ -100,6 +104,11 @@ interface FailedModelAttempt {
   model: CompletionModel;
   message: string;
   cooldownMs: number;
+}
+
+interface PromptPreview extends FormattedCompletionPrompt {
+  model: CompletionModel;
+  builtAt: number;
 }
 
 type CompletionStatus =
@@ -430,6 +439,7 @@ class CompletionController {
             routeByLatency: this.plugin.settings.routeByLatency,
             promptContext,
           });
+          this.plugin.rememberPrompt(model, request);
           const response = await fetch(request.url, {
             method: "POST",
             signal: controller.signal,
@@ -646,6 +656,54 @@ class CompletionController {
   }
 }
 
+class PromptPreviewModal extends Modal {
+  constructor(
+    app: App,
+    private readonly model: CompletionModel,
+    private readonly preview: PromptPreview | null,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.modalEl.addClass("inline-complete-prompt-modal");
+    this.titleEl.setText("Inline Complete prompt");
+    this.contentEl.empty();
+
+    if (!this.preview) {
+      this.contentEl.createEl("p", {
+        text: `No prompt has been built for ${this.model.label} yet. Wait for a completion request, then click the status item again.`,
+      });
+      return;
+    }
+
+    this.contentEl.createEl("p", {
+      cls: "inline-complete-prompt-meta",
+      text: [
+        this.preview.model.label,
+        this.preview.format,
+        `${this.preview.text.length.toLocaleString()} characters`,
+        new Date(this.preview.builtAt).toLocaleTimeString(),
+      ].join(" · "),
+    });
+    const prompt = this.contentEl.createEl("textarea", {
+      cls: "inline-complete-prompt-text",
+      attr: {
+        "aria-label": `Full prompt sent to ${this.preview.model.label}`,
+        readonly: "true",
+        spellcheck: "false",
+        wrap: "off",
+      },
+    });
+    prompt.value = this.preview.text;
+    prompt.setSelectionRange(0, 0);
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
 export default class InlineCompletePlugin extends Plugin {
   settings: InlineCompleteSettings = DEFAULT_SETTINGS;
   private controllers = new WeakMap<EditorView, CompletionController>();
@@ -655,6 +713,8 @@ export default class InlineCompletePlugin extends Plugin {
   private lastErrorAt = 0;
   private modelCircuits = new Map<string, ModelCircuitState>();
   private statusBarItem: HTMLElement | null = null;
+  private statusModel: CompletionModel | null = null;
+  private promptPreviews = new Map<string, PromptPreview>();
   promptContextLoader!: PromptContextLoader;
 
   async onload(): Promise<void> {
@@ -662,6 +722,20 @@ export default class InlineCompletePlugin extends Plugin {
     this.promptContextLoader = new PromptContextLoader(this.app);
     this.statusBarItem = this.addStatusBarItem();
     this.statusBarItem.addClass("inline-complete-status");
+    this.statusBarItem.setAttribute("role", "button");
+    this.statusBarItem.setAttribute("tabindex", "0");
+    this.registerDomEvent(this.statusBarItem, "click", () => {
+      this.openPromptPreview();
+    });
+    this.registerDomEvent(
+      this.statusBarItem,
+      "keydown",
+      (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        this.openPromptPreview();
+      },
+    );
     this.setStatus("idle", "Ready");
 
     const controllerExtension = ViewPlugin.define((view) => {
@@ -730,6 +804,26 @@ export default class InlineCompletePlugin extends Plugin {
     return this.getEligibleModels()[0] ?? this.getRankedModels()[0];
   }
 
+  rememberPrompt(
+    model: CompletionModel,
+    request: CompletionRequest,
+  ): void {
+    this.promptPreviews.set(model.id, {
+      model,
+      builtAt: Date.now(),
+      ...formatCompletionPrompt(request),
+    });
+  }
+
+  openPromptPreview(): void {
+    const model = this.statusModel ?? this.getPreferredModel();
+    new PromptPreviewModal(
+      this.app,
+      model,
+      this.promptPreviews.get(model.id) ?? null,
+    ).open();
+  }
+
   setStatus(
     status: CompletionStatus,
     detail?: string,
@@ -738,6 +832,7 @@ export default class InlineCompletePlugin extends Plugin {
     if (!this.statusBarItem) return;
 
     const model = statusModel ?? this.getPreferredModel();
+    this.statusModel = model;
     this.statusBarItem.textContent =
       `${model.shortName} · ${STATUS_LABELS[status]}`;
     this.statusBarItem.dataset.state = status;
@@ -747,7 +842,13 @@ export default class InlineCompletePlugin extends Plugin {
     );
     this.statusBarItem.setAttribute(
       "title",
-      [model.label, detail].filter(Boolean).join("\n"),
+      [
+        model.label,
+        detail,
+        "Click to inspect the last full prompt",
+      ]
+        .filter(Boolean)
+        .join("\n"),
     );
   }
 

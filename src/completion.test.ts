@@ -7,6 +7,7 @@ import {
   DEFAULT_MODEL_PRIORITY,
   FAILURE_COOLDOWN_BASE_MS,
   FAILURE_COOLDOWN_MAX_MS,
+  formatCompletionPrompt,
   getCompletionModel,
   nextModelFailureCooldown,
   normalizeModelPriority,
@@ -163,6 +164,28 @@ describe("completion request context", () => {
     expect(request.body.provider).toEqual({
       only: ["deepinfra"],
       allow_fallbacks: false,
+    });
+  });
+
+  it("formats the exact model-facing prompt for inspection", () => {
+    const rawRequest = buildCompletionRequest(
+      getCompletionModel("Qwen/Qwen3.5-35B-A3B-Base"),
+      snapshot,
+      { maxTokens: 48, temperature: 0.1, routeByLatency: true },
+    );
+    const chatRequest = buildCompletionRequest(
+      getCompletionModel("moonshotai/kimi-k2::deepinfra"),
+      snapshot,
+      { maxTokens: 48, temperature: 0.1, routeByLatency: true },
+    );
+
+    expect(formatCompletionPrompt(rawRequest)).toEqual({
+      format: "Raw causal prompt",
+      text: rawRequest.body.prompt,
+    });
+    expect(formatCompletionPrompt(chatRequest)).toEqual({
+      format: "Chat messages (JSON)",
+      text: JSON.stringify(chatRequest.body.messages, null, 2),
     });
   });
 

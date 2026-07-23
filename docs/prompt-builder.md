@@ -137,6 +137,12 @@ omitted, or are still loading for a later request. Context failures do not open
 a model circuit and do not block completion generation; the prompt simply
 contains the resources available within the latency and size budgets.
 
+Clicking the status item opens a read-only modal containing the exact prompt
+most recently built for the displayed model. Raw base-model prompts are shown
+unchanged. Chat prompts are shown as the complete message array in formatted
+JSON, preserving every role boundary and the final assistant prefill. Request
+headers and API keys are never stored in the preview.
+
 If model fallback occurs, every attempted provider receives the same built
 prompt, including retrieved journal, local, and web context. Disabling **Read
 supporting context** restores active-file-only prompts. Recent journals also

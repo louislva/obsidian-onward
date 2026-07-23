@@ -18,7 +18,19 @@
 }
 
 .inline-complete-status {
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  padding-inline: 0.25rem;
   white-space: nowrap;
+}
+
+.inline-complete-status:hover {
+  background: var(--background-modifier-hover);
+}
+
+.inline-complete-status:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
 }
 
 .inline-complete-status[data-state="generating"],
@@ -37,4 +49,25 @@
 .inline-complete-status[data-state="missing-key"],
 .inline-complete-status[data-state="error"] {
   color: var(--text-error);
+}
+
+.inline-complete-prompt-modal {
+  width: min(92vw, 960px);
+}
+
+.inline-complete-prompt-meta {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin: 0 0 0.75rem;
+}
+
+.inline-complete-prompt-text {
+  box-sizing: border-box;
+  font-family: var(--font-monospace);
+  font-size: var(--font-smaller);
+  height: min(70vh, 760px);
+  line-height: 1.45;
+  resize: vertical;
+  tab-size: 2;
+  width: 100%;
 }

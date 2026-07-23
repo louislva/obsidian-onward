@@ -81,7 +81,9 @@ The bottom-right status item uses the short name of the model currently being
 tried or whose suggestion is visible, such as `Qwen 35B`, `K2`, or `Opus 4.5`.
 It reports `waiting`, `generating`, `generated · shown`, or `generated · not
 shown`, plus `missing key` and `error` when a request cannot run. Hover it to
-see fallback and cooldown details.
+see fallback and cooldown details. Click the status item to inspect the exact
+last model-facing prompt. Raw models show the causal transcript unchanged;
+chat models show the complete message array as formatted JSON.
 
 The Kimi K2 option uses the requested `moonshotai/kimi-k2::deepinfra` identifier
 and additionally locks OpenRouter routing to `deepinfra`, with provider fallback

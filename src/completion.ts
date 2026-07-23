@@ -162,6 +162,27 @@ export interface CompletionRequest {
   };
 }
 
+export interface FormattedCompletionPrompt {
+  format: "Raw causal prompt" | "Chat messages (JSON)";
+  text: string;
+}
+
+export function formatCompletionPrompt(
+  request: CompletionRequest,
+): FormattedCompletionPrompt {
+  if (request.body.prompt !== undefined) {
+    return {
+      format: "Raw causal prompt",
+      text: request.body.prompt,
+    };
+  }
+
+  return {
+    format: "Chat messages (JSON)",
+    text: JSON.stringify(request.body.messages ?? [], null, 2),
+  };
+}
+
 export interface CompletionSnapshot {
   title: string;
   path?: string;

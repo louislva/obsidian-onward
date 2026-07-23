@@ -89,7 +89,10 @@ plugin. Treat this file as the project handoff for future agents.
   attempt started within 30 seconds after recovery doubles its cooldown, capped
   at 30 minutes. Keep these calculations pure in `completion.ts`.
 - Hovering the status item shows the full model label and a specific reason.
-  Preserve this diagnostic detail when modifying request handling.
+  Clicking it opens the exact last model-facing prompt: raw prompt text for
+  Tinker, or the full messages array as formatted JSON for chat models. The
+  item is keyboard-accessible with Enter/Space. Preserve this diagnostic
+  behavior when modifying request handling.
 - On `prompt-builder`, web context uses Obsidian `requestUrl`, Mozilla
   Readability, and `htmlToMarkdown`; web results are cached for 15 minutes.
   Retrieval is non-recursive and bounded to eight resources, 12,000 characters
