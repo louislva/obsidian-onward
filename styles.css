@@ -1,0 +1,19 @@
+.inline-complete-ghost {
+  color: var(--text-faint);
+  opacity: 0.78;
+  white-space: pre-wrap;
+  pointer-events: none;
+  user-select: none;
+}
+
+.inline-complete-settings-note {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.45;
+  margin: 0.25rem 0 1rem;
+}
+
+.inline-complete-secret input {
+  font-family: var(--font-monospace);
+}
+
