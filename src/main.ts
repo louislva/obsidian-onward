@@ -15,6 +15,7 @@ import {
 } from "@codemirror/view";
 import {
   App,
+  FileSystemAdapter,
   FuzzySuggestModal,
   MarkdownView,
   Modal,
@@ -50,6 +51,13 @@ import {
   type ModelFailureCooldown,
   type ModelDropPlacement,
 } from "./completion";
+import {
+  createPendingTrainingExample,
+  resolveTrainingDataFolder,
+  writeTrainingDataRecord,
+  type PendingTrainingExample,
+  type TrainingOutcome,
+} from "./training-data";
 
 interface InlineCompleteSettings {
   apiKey: string;
@@ -66,6 +74,8 @@ interface InlineCompleteSettings {
   linkedContextMaxCharacters: number;
   recentJournalContextEnabled: boolean;
   dailyJournalFolder: string;
+  saveTrainingData: boolean;
+  trainingDataPath: string;
 }
 
 const DEFAULT_SETTINGS: InlineCompleteSettings = {
@@ -85,6 +95,8 @@ const DEFAULT_SETTINGS: InlineCompleteSettings = {
   recentJournalContextEnabled: true,
   dailyJournalFolder:
     DEFAULT_PROMPT_CONTEXT_OPTIONS.journalFolder,
+  saveTrainingData: false,
+  trainingDataPath: "",
 };
 
 interface GhostText {
@@ -214,6 +226,7 @@ class CompletionController {
   private generation = 0;
   private revealAt = 0;
   private suggestion: GhostText | null = null;
+  private trainingExample: PendingTrainingExample | null = null;
   private dismissedUntilChange = false;
 
   constructor(
@@ -263,6 +276,7 @@ class CompletionController {
     if (!this.suggestion) return false;
 
     const { pos, replaceFrom, text } = this.suggestion;
+    this.resolveTrainingExample("accepted");
     this.cancel(true);
     this.view.dispatch({
       changes: { from: replaceFrom, to: pos, insert: text },
@@ -273,19 +287,33 @@ class CompletionController {
   }
 
   dismiss(): boolean {
-    if (!this.suggestion && this.requestTimer === null && !this.abortController) {
+    if (
+      !this.suggestion &&
+      !this.trainingExample &&
+      this.requestTimer === null &&
+      this.revealTimer === null &&
+      !this.abortController
+    ) {
       return false;
     }
 
     const hadSuggestion = this.suggestion !== null;
+    const hadGeneratedCompletion = this.trainingExample !== null;
     const suggestionModel = this.suggestion
       ? getCompletionModel(this.suggestion.modelId)
-      : undefined;
+      : this.trainingExample
+        ? getCompletionModel(this.trainingExample.model.id)
+        : undefined;
     this.dismissedUntilChange = true;
+    this.resolveTrainingExample("hard_rejected");
     this.cancel(true);
     this.plugin.setStatus(
-      hadSuggestion ? "hidden" : "idle",
-      hadSuggestion ? "Suggestion dismissed" : "Completion cancelled",
+      hadSuggestion || hadGeneratedCompletion ? "hidden" : "idle",
+      hadSuggestion
+        ? "Suggestion dismissed"
+        : hadGeneratedCompletion
+          ? "Generated completion dismissed before display"
+          : "Completion cancelled",
       suggestionModel,
     );
     return true;
@@ -432,6 +460,7 @@ class CompletionController {
         | {
             model: CompletionModel;
             raw: string;
+            request: CompletionRequest;
           }
         | undefined;
 
@@ -528,6 +557,7 @@ class CompletionController {
           result = {
             model,
             raw,
+            request,
           };
           break;
         } catch (error) {
@@ -547,11 +577,36 @@ class CompletionController {
         this.plugin.notifyFallbacksExhausted(failures);
         return;
       }
+      const { model, raw, request } = result;
+      const text = sanitizeCompletion(raw, snapshot);
+      const insertion = text
+        ? reconcileCompletionBoundary(text, snapshot)
+        : { text: "", replaceFrom: snapshot.cursor };
+      const trainingExample = this.plugin.createTrainingExample({
+        model,
+        snapshot,
+        request,
+        raw,
+        sanitized: text,
+        displayed: insertion.text,
+        replaceFrom: insertion.replaceFrom,
+      });
       if (controller.signal.aborted || generation !== this.generation) {
+        if (trainingExample) {
+          this.plugin.finishTrainingExample(
+            trainingExample,
+            "soft_rejected",
+          );
+        }
         return;
       }
-      const { model, raw } = result;
       if (!this.snapshotStillCurrent(snapshot)) {
+        if (trainingExample) {
+          this.plugin.finishTrainingExample(
+            trainingExample,
+            "soft_rejected",
+          );
+        }
         this.plugin.setStatus(
           "hidden",
           "A completion arrived after the document changed",
@@ -559,9 +614,11 @@ class CompletionController {
         );
         return;
       }
+      this.resolveTrainingExample("soft_rejected");
+      this.trainingExample = trainingExample;
 
-      const text = sanitizeCompletion(raw, snapshot);
       if (!text) {
+        this.resolveTrainingExample("soft_rejected");
         this.plugin.setStatus(
           "hidden",
           raw
@@ -571,8 +628,8 @@ class CompletionController {
         );
         return;
       }
-      const insertion = reconcileCompletionBoundary(text, snapshot);
       if (!insertion.text) {
+        this.resolveTrainingExample("soft_rejected");
         this.plugin.setStatus(
           "hidden",
           "The completion contained only redundant boundary whitespace",
@@ -583,9 +640,11 @@ class CompletionController {
 
       const show = (): void => {
         if (generation !== this.generation || controller.signal.aborted) {
+          this.resolveTrainingExample("soft_rejected");
           return;
         }
         if (!this.eligible() || !this.snapshotStillCurrent(snapshot)) {
+          this.resolveTrainingExample("soft_rejected");
           this.plugin.setStatus(
             "hidden",
             "A valid completion was generated but was no longer eligible to display",
@@ -680,7 +739,15 @@ class CompletionController {
     }, 0);
   }
 
+  private resolveTrainingExample(outcome: TrainingOutcome): void {
+    if (!this.trainingExample) return;
+    const example = this.trainingExample;
+    this.trainingExample = null;
+    this.plugin.finishTrainingExample(example, outcome);
+  }
+
   private cancel(clearGhost: boolean): void {
+    this.resolveTrainingExample("soft_rejected");
     this.generation += 1;
     if (this.requestTimer !== null) {
       window.clearTimeout(this.requestTimer);
@@ -803,6 +870,9 @@ export default class InlineCompletePlugin extends Plugin {
   private openRouterCatalog:
     | { loadedAt: number; models: OpenRouterCatalogModel[] }
     | null = null;
+  private trainingDataWriteQueue: Promise<void> = Promise.resolve();
+  private trainingDataErrorNotified = false;
+  private trainingDataPathNoticeShown = false;
   promptContextLoader!: PromptContextLoader;
 
   async onload(): Promise<void> {
@@ -901,6 +971,70 @@ export default class InlineCompletePlugin extends Plugin {
       builtAt: Date.now(),
       ...formatCompletionPrompt(request),
     });
+  }
+
+  createTrainingExample(options: {
+    model: CompletionModel;
+    snapshot: CompletionSnapshot;
+    request: CompletionRequest;
+    raw: string;
+    sanitized: string;
+    displayed: string;
+    replaceFrom: number;
+  }): PendingTrainingExample | null {
+    if (!this.settings.saveTrainingData) return null;
+
+    const adapter = this.app.vault.adapter;
+    if (!(adapter instanceof FileSystemAdapter)) {
+      if (!this.trainingDataPathNoticeShown) {
+        this.trainingDataPathNoticeShown = true;
+        new Notice(
+          "Onward training data requires a local filesystem vault.",
+          8000,
+        );
+      }
+      return null;
+    }
+    const folderPath = resolveTrainingDataFolder(
+      this.settings.trainingDataPath,
+      adapter.getBasePath(),
+    );
+    if (!folderPath) {
+      if (!this.trainingDataPathNoticeShown) {
+        this.trainingDataPathNoticeShown = true;
+        new Notice(
+          "Onward training data is enabled, but no folder path is configured.",
+          8000,
+        );
+      }
+      return null;
+    }
+
+    return createPendingTrainingExample({
+      folderPath,
+      ...options,
+    });
+  }
+
+  finishTrainingExample(
+    example: PendingTrainingExample,
+    outcome: TrainingOutcome,
+  ): void {
+    this.trainingDataWriteQueue = this.trainingDataWriteQueue
+      .then(async () => {
+        await writeTrainingDataRecord(example, outcome);
+        this.trainingDataErrorNotified = false;
+      })
+      .catch((error: unknown) => {
+        if (this.trainingDataErrorNotified) return;
+        this.trainingDataErrorNotified = true;
+        const message =
+          error instanceof Error ? error.message : String(error);
+        new Notice(
+          `Onward could not save training data: ${message}`,
+          8000,
+        );
+      });
   }
 
   openPromptPreview(): void {
@@ -1257,6 +1391,7 @@ export default class InlineCompletePlugin extends Plugin {
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
     this.missingKeyNotified = false;
+    this.trainingDataPathNoticeShown = false;
   }
 }
 
@@ -1525,6 +1660,50 @@ class InlineCompleteSettingTab extends PluginSettingTab {
             }
           }),
       );
+
+    containerEl.createEl("h3", { text: "Training data" });
+    const trainingDataNote = containerEl.createEl("p", {
+      cls: "onward-settings-note",
+    });
+    trainingDataNote.appendText(
+      "This saves your accepted/rejected completions locally on your disk. This never leaves your machine — it’s for ",
+    );
+    trainingDataNote.createEl("em", { text: "you" });
+    trainingDataNote.appendText(
+      " if you want to train a better model.",
+    );
+
+    new Setting(containerEl)
+      .setName("Save training data")
+      .setDesc(
+        "Write one local JSON file for every generated completion, labeled accepted, soft rejected, or hard rejected. Default: off.",
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.saveTrainingData)
+          .onChange(async (value) => {
+            this.plugin.settings.saveTrainingData = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    const trainingDataPathSetting = new Setting(containerEl)
+      .setName("Training data folder")
+      .setDesc(
+        "Absolute paths and ~/ are supported. Relative paths are resolved from the vault folder.",
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("~/Documents/onward-training-data")
+          .setValue(this.plugin.settings.trainingDataPath)
+          .onChange(async (value) => {
+            this.plugin.settings.trainingDataPath = value.trim();
+            await this.plugin.saveSettings();
+          }),
+      );
+    trainingDataPathSetting.settingEl.addClass(
+      "onward-training-path",
+    );
 
     new Setting(containerEl)
       .setName("Pause before showing")

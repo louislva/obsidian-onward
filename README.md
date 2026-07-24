@@ -76,6 +76,22 @@ services may receive the same note sequentially until one succeeds. Each
 request also includes the successfully retrieved contents of recent journals
 plus direct web and vault links unless **Read supporting context** is disabled.
 
+## Local training data
+
+**Save training data** is off by default. When enabled with a folder path,
+Onward writes one JSON file for every successful model response. Each file
+contains the exact model-facing request body, model and note metadata, raw and
+displayed completion text, and one terminal outcome:
+
+- `accepted` — inserted with **Tab**
+- `hard_rejected` — dismissed with **Escape**
+- `soft_rejected` — discarded for any other reason, including typing, moving
+  the cursor, replacement, filtering, disabling Onward, or closing the editor
+
+Absolute paths and `~/` are supported. Relative paths are resolved from the
+vault folder. The files remain local; API keys and request headers are never
+written.
+
 ## Status indicator
 
 The bottom-right status item uses the short name of the model currently being

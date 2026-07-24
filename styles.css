@@ -17,6 +17,11 @@
   font-family: var(--font-monospace);
 }
 
+.onward-training-path input {
+  font-family: var(--font-monospace);
+  width: min(36rem, 50vw);
+}
+
 .onward-model-rank {
   position: relative;
   transition:

@@ -57,6 +57,8 @@ file as the project handoff for future agents.
   normalization, and synthetic command formatting.
 - `src/prompt-context.ts`: Obsidian vault resolution, cached web retrieval,
   Readability extraction, and context budgets.
+- `src/training-data.ts`: local training-example schema, folder resolution,
+  terminal outcome serialization, and isolated JSON-file writes.
 - `styles.css`: gray inline suggestion, settings styling, and status colors.
 - `main.js`: generated production bundle; do not hand-edit it.
 
@@ -95,6 +97,15 @@ file as the project handoff for future agents.
 - Every ranked model can be removed, and an explicitly saved list is
   authoritative even when empty. Do not append deleted defaults during
   settings normalization.
+- Local training capture defaults off. When enabled, every successful model
+  response receives exactly one terminal label: `accepted` for Tab,
+  `hard_rejected` for Escape (including before reveal), or `soft_rejected` for
+  every other discard path. Filtered, stale, and redundant completions count as
+  soft rejections; failed API attempts do not create examples.
+- Training files contain the exact `CompletionRequest`, completion variants,
+  model metadata, and source-note metadata, but no headers or API keys. Writes
+  are asynchronous, serialized, failure-isolated, and local to the configured
+  absolute, home-relative, or vault-relative folder.
 - The plus button reads `https://openrouter.ai/api/v1/models` and opens a native
   fuzzy-search modal. Arbitrary selected text models are stored directly in
   `modelPriority` and use assistant-history emulated prefill. The curated K2
