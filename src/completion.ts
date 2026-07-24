@@ -59,42 +59,71 @@ export const DEFAULT_MODEL_PRIORITY = COMPLETION_MODELS.map(
   (model) => model.id,
 );
 
+function genericOpenRouterShortName(id: string): string {
+  const slug = id.split("/").at(-1) ?? id;
+  const readable = slug.replace(/:free$/u, " free");
+  return readable.length <= 20
+    ? readable
+    : `${readable.slice(0, 19)}…`;
+}
+
 export function getCompletionModel(id: string): CompletionModel {
-  return (
-    COMPLETION_MODELS.find((candidate) => candidate.id === id) ??
-    COMPLETION_MODELS[0]
+  const curated = COMPLETION_MODELS.find(
+    (candidate) => candidate.id === id,
   );
+  if (curated) return curated;
+
+  return {
+    id,
+    label: `OpenRouter emulated prefill · ${id}`,
+    shortName: genericOpenRouterShortName(id),
+    backend: "openrouter-prefill",
+    apiModel: id,
+    prefillMode: "assistant-history",
+  };
+}
+
+function normalizeModelId(candidate: unknown): string | null {
+  if (typeof candidate !== "string") return null;
+  const trimmed = candidate.trim();
+  const canonical =
+    trimmed.startsWith("moonshotai/kimi-k2::")
+      ? "moonshotai/kimi-k2"
+      : trimmed;
+  if (
+    canonical.length === 0 ||
+    canonical.length > 256 ||
+    !/^[^\s/]+\/[^\s/]+$/u.test(canonical)
+  ) {
+    return null;
+  }
+  return canonical;
 }
 
 export function normalizeModelPriority(
   priority: unknown,
   legacyModel?: unknown,
 ): string[] {
-  const validIds = new Set(DEFAULT_MODEL_PRIORITY);
   const normalized: string[] = [];
   const append = (candidate: unknown): void => {
-    const canonicalCandidate =
-      typeof candidate === "string" &&
-      candidate.startsWith("moonshotai/kimi-k2::")
-        ? "moonshotai/kimi-k2"
-        : candidate;
-    if (
-      typeof canonicalCandidate === "string" &&
-      validIds.has(canonicalCandidate) &&
-      !normalized.includes(canonicalCandidate)
-    ) {
-      normalized.push(canonicalCandidate);
+    const canonical = normalizeModelId(candidate);
+    if (canonical && !normalized.includes(canonical)) {
+      normalized.push(canonical);
     }
   };
 
   if (Array.isArray(priority)) {
     for (const candidate of priority) append(candidate);
-  } else {
-    append(legacyModel);
+    return normalized;
   }
 
-  for (const modelId of DEFAULT_MODEL_PRIORITY) append(modelId);
-  return normalized;
+  if (legacyModel !== undefined) {
+    append(legacyModel);
+    for (const modelId of DEFAULT_MODEL_PRIORITY) append(modelId);
+    return normalized;
+  }
+
+  return [...DEFAULT_MODEL_PRIORITY];
 }
 
 export type ModelDropPlacement = "before" | "after";

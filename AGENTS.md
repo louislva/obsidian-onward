@@ -92,6 +92,13 @@ file as the project handoff for future agents.
 - Settings rows are draggable by their grip handles and show a before/after
   insertion marker. Keep the arrow buttons as an accessible fallback; every
   reorder path must persist `modelPriority` and refresh live controllers.
+- Every ranked model can be removed, and an explicitly saved list is
+  authoritative even when empty. Do not append deleted defaults during
+  settings normalization.
+- The plus button reads `https://openrouter.ai/api/v1/models` and opens a native
+  fuzzy-search modal. Arbitrary selected text models are stored directly in
+  `modelPriority` and use assistant-history emulated prefill. The curated K2
+  and Opus definitions retain their model-specific prefill modes.
 - The first request failure cools a model for 30 seconds. A failure from an
   attempt started within 30 seconds after recovery doubles its cooldown, capped
   at 30 minutes. Keep these calculations pure in `completion.ts`.
@@ -117,9 +124,11 @@ file as the project handoff for future agents.
 
 ## Models and API semantics
 
-The model ranking is intentionally curated in `COMPLETION_MODELS`. Existing
-saved `model` dropdown values are migrated to the top of `modelPriority`; all
-new or omitted curated models are appended so the ranking remains complete.
+`COMPLETION_MODELS` seeds new installations and preserves special semantics for
+the built-in Tinker, K2, and Opus entries. Existing saved `model` dropdown
+values are migrated to the top of a default ranking. Once `modelPriority` is
+present, its order and membership are authoritative. Unknown valid IDs are
+treated as OpenRouter chat models using assistant-history emulated prefill.
 
 ### Tinker raw completion
 

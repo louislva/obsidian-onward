@@ -199,11 +199,12 @@ describe("completion request context", () => {
     ]);
   });
 
-  it("falls back to the default model for stale saved settings", () => {
+  it("treats an unknown saved ID as a generic OpenRouter model", () => {
     const model = getCompletionModel("google/gemini-2.5-flash-lite");
-    expect(model.apiModel).toBe("Qwen/Qwen3.5-35B-A3B-Base");
-    expect(model.backend).toBe("tinker");
-    expect(model.shortName).toBe("Qwen 35B");
+    expect(model.apiModel).toBe("google/gemini-2.5-flash-lite");
+    expect(model.backend).toBe("openrouter-prefill");
+    expect(model.prefillMode).toBe("assistant-history");
+    expect(model.shortName).toBe("gemini-2.5-flash-li…");
   });
 
   it("builds a raw Tinker completions request", () => {
@@ -363,23 +364,40 @@ describe("model fallback configuration", () => {
       "moonshotai/kimi-k2",
       "Qwen/Qwen3.5-9B-Base",
     ]);
-    expect(priority).toHaveLength(DEFAULT_MODEL_PRIORITY.length);
+    expect(priority).toHaveLength(2);
   });
 
-  it("keeps saved order, removes duplicates, and appends new models", () => {
+  it("keeps an explicit saved order, including arbitrary model IDs", () => {
     const priority = normalizeModelPriority([
       "anthropic/claude-opus-4.6",
       "not-a-model",
       "anthropic/claude-opus-4.6",
+      "mistralai/mistral-small-3.2-24b-instruct",
       "Qwen/Qwen3.5-9B-Base",
     ]);
 
-    expect(priority.slice(0, 2)).toEqual([
+    expect(priority).toEqual([
       "anthropic/claude-opus-4.6",
+      "mistralai/mistral-small-3.2-24b-instruct",
       "Qwen/Qwen3.5-9B-Base",
     ]);
-    expect(priority).toHaveLength(DEFAULT_MODEL_PRIORITY.length);
-    expect(new Set(priority).size).toBe(DEFAULT_MODEL_PRIORITY.length);
+  });
+
+  it("preserves an explicitly empty model list", () => {
+    expect(normalizeModelPriority([])).toEqual([]);
+  });
+
+  it("turns an arbitrary OpenRouter ID into a compatible prefill model", () => {
+    const model = getCompletionModel(
+      "mistralai/mistral-small-3.2-24b-instruct",
+    );
+
+    expect(model).toMatchObject({
+      backend: "openrouter-prefill",
+      apiModel: "mistralai/mistral-small-3.2-24b-instruct",
+      prefillMode: "assistant-history",
+    });
+    expect(model.shortName.length).toBeLessThanOrEqual(20);
   });
 
   it("moves a model before a later row", () => {

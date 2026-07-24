@@ -58,6 +58,17 @@
   bottom: -1px;
 }
 
+.onward-model-picker-id {
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-small);
+}
+
+.onward-model-picker-name {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin-top: 0.15rem;
+}
+
 .onward-status {
   border-radius: var(--radius-s);
   cursor: pointer;

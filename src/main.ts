@@ -15,6 +15,7 @@ import {
 } from "@codemirror/view";
 import {
   App,
+  FuzzySuggestModal,
   MarkdownView,
   Modal,
   Notice,
@@ -22,6 +23,7 @@ import {
   PluginSettingTab,
   Setting,
   requestUrl,
+  type FuzzyMatch,
 } from "obsidian";
 import {
   DEFAULT_PROMPT_CONTEXT_OPTIONS,
@@ -99,6 +101,21 @@ interface CompletionResponse {
   }>;
   error?: { message?: string };
   detail?: string;
+}
+
+interface OpenRouterCatalogModel {
+  id: string;
+  name: string;
+}
+
+interface OpenRouterModelsResponse {
+  data?: Array<{
+    id?: unknown;
+    name?: unknown;
+    architecture?: {
+      output_modalities?: unknown;
+    };
+  }>;
 }
 
 interface ModelCircuitState extends ModelFailureCooldown {
@@ -730,6 +747,48 @@ class PromptPreviewModal extends Modal {
   }
 }
 
+class OpenRouterModelSuggestModal extends FuzzySuggestModal<OpenRouterCatalogModel> {
+  constructor(
+    app: App,
+    private readonly models: OpenRouterCatalogModel[],
+    private readonly chooseModel: (
+      model: OpenRouterCatalogModel,
+    ) => Promise<void>,
+  ) {
+    super(app);
+    this.setPlaceholder("Search OpenRouter model IDs…");
+    this.emptyStateText = "No matching OpenRouter models";
+  }
+
+  getItems(): OpenRouterCatalogModel[] {
+    return this.models;
+  }
+
+  getItemText(model: OpenRouterCatalogModel): string {
+    return `${model.id} ${model.name}`;
+  }
+
+  renderSuggestion(
+    match: FuzzyMatch<OpenRouterCatalogModel>,
+    el: HTMLElement,
+  ): void {
+    el.createDiv({
+      cls: "onward-model-picker-id",
+      text: match.item.id,
+    });
+    if (match.item.name && match.item.name !== match.item.id) {
+      el.createDiv({
+        cls: "onward-model-picker-name",
+        text: match.item.name,
+      });
+    }
+  }
+
+  onChooseItem(model: OpenRouterCatalogModel): void {
+    void this.chooseModel(model);
+  }
+}
+
 export default class InlineCompletePlugin extends Plugin {
   settings: InlineCompleteSettings = DEFAULT_SETTINGS;
   private controllers = new WeakMap<EditorView, CompletionController>();
@@ -741,6 +800,9 @@ export default class InlineCompletePlugin extends Plugin {
   private statusBarItem: HTMLElement | null = null;
   private statusModel: CompletionModel | null = null;
   private promptPreviews = new Map<string, PromptPreview>();
+  private openRouterCatalog:
+    | { loadedAt: number; models: OpenRouterCatalogModel[] }
+    | null = null;
   promptContextLoader!: PromptContextLoader;
 
   async onload(): Promise<void> {
@@ -826,7 +888,7 @@ export default class InlineCompletePlugin extends Plugin {
     );
   }
 
-  getPreferredModel(): CompletionModel {
+  getPreferredModel(): CompletionModel | null {
     return this.getEligibleModels()[0] ?? this.getRankedModels()[0];
   }
 
@@ -843,6 +905,10 @@ export default class InlineCompletePlugin extends Plugin {
 
   openPromptPreview(): void {
     const model = this.statusModel ?? this.getPreferredModel();
+    if (!model) {
+      new Notice("Onward has no models configured.");
+      return;
+    }
     new PromptPreviewModal(
       this.app,
       model,
@@ -859,23 +925,78 @@ export default class InlineCompletePlugin extends Plugin {
 
     const model = statusModel ?? this.getPreferredModel();
     this.statusModel = model;
-    this.statusBarItem.textContent =
-      `${model.shortName} · ${STATUS_LABELS[status]}`;
+    const shortName = model?.shortName ?? "No model";
+    this.statusBarItem.textContent = `${shortName} · ${STATUS_LABELS[status]}`;
     this.statusBarItem.dataset.state = status;
     this.statusBarItem.setAttribute(
       "aria-label",
-      `Onward: ${model.shortName}, ${STATUS_LABELS[status]}`,
+      `Onward: ${shortName}, ${STATUS_LABELS[status]}`,
     );
     this.statusBarItem.setAttribute(
       "title",
       [
-        model.label,
+        model?.label,
         detail,
-        "Click to inspect the last full prompt",
+        model ? "Click to inspect the last full prompt" : "",
       ]
         .filter(Boolean)
         .join("\n"),
     );
+  }
+
+  async loadOpenRouterModels(): Promise<OpenRouterCatalogModel[]> {
+    const maxCacheAgeMs = 15 * 60_000;
+    if (
+      this.openRouterCatalog &&
+      Date.now() - this.openRouterCatalog.loadedAt < maxCacheAgeMs
+    ) {
+      return this.openRouterCatalog.models;
+    }
+
+    const response = await requestUrl({
+      url: "https://openrouter.ai/api/v1/models",
+      method: "GET",
+      throw: false,
+    });
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(
+        `OpenRouter model list failed (HTTP ${response.status})`,
+      );
+    }
+    const payload = response.json as OpenRouterModelsResponse;
+    if (!Array.isArray(payload.data)) {
+      throw new Error("OpenRouter returned an invalid model list");
+    }
+
+    const seen = new Set<string>();
+    const models = payload.data
+      .flatMap((candidate): OpenRouterCatalogModel[] => {
+        if (
+          typeof candidate.id !== "string" ||
+          seen.has(candidate.id)
+        ) {
+          return [];
+        }
+        const outputModalities =
+          candidate.architecture?.output_modalities;
+        if (
+          Array.isArray(outputModalities) &&
+          !outputModalities.includes("text")
+        ) {
+          return [];
+        }
+        seen.add(candidate.id);
+        return [{
+          id: candidate.id,
+          name:
+            typeof candidate.name === "string"
+              ? candidate.name
+              : candidate.id,
+        }];
+      })
+      .sort((left, right) => left.id.localeCompare(right.id));
+    this.openRouterCatalog = { loadedAt: Date.now(), models };
+    return models;
   }
 
   getApiKey(backend: CompletionBackend): string {
@@ -951,6 +1072,38 @@ export default class InlineCompletePlugin extends Plugin {
     for (const controller of this.liveControllers) controller.refresh();
   }
 
+  async addOpenRouterModel(modelId: string): Promise<boolean> {
+    if (this.settings.modelPriority.includes(modelId)) return false;
+    this.settings.modelPriority = [
+      ...this.settings.modelPriority,
+      modelId,
+    ];
+    await this.saveSettings();
+    this.setStatus("idle", `${modelId} added to fallback order`);
+    for (const controller of this.liveControllers) controller.refresh();
+    return true;
+  }
+
+  async removeModel(modelId: string): Promise<boolean> {
+    if (!this.settings.modelPriority.includes(modelId)) return false;
+    this.settings.modelPriority = this.settings.modelPriority.filter(
+      (candidate) => candidate !== modelId,
+    );
+    this.modelCircuits.delete(modelId);
+    if (this.statusModel?.id === modelId) {
+      this.statusModel = null;
+    }
+    await this.saveSettings();
+    this.setStatus(
+      "idle",
+      this.settings.modelPriority.length > 0
+        ? `${modelId} removed from fallback order`
+        : "No models configured. Add an OpenRouter model in settings.",
+    );
+    for (const controller of this.liveControllers) controller.refresh();
+    return true;
+  }
+
   async moveModelTo(
     movedModelId: string,
     targetModelId: string,
@@ -1000,6 +1153,20 @@ export default class InlineCompletePlugin extends Plugin {
 
   notifyNoEligibleModels(): void {
     const rankedModels = this.getRankedModels();
+    if (rankedModels.length === 0) {
+      this.setStatus(
+        "error",
+        "No models configured. Add an OpenRouter model in settings.",
+      );
+      if (!this.missingKeyNotified) {
+        this.missingKeyNotified = true;
+        new Notice(
+          "Onward has no models configured. Add one in plugin settings.",
+          8000,
+        );
+      }
+      return;
+    }
     const keyedModels = rankedModels.filter((model) =>
       Boolean(this.getApiKey(model.backend)),
     );
@@ -1163,7 +1330,7 @@ class InlineCompleteSettingTab extends PluginSettingTab {
     containerEl.createEl("h3", { text: "Model fallback order" });
     containerEl.createEl("p", {
       cls: "onward-settings-note",
-      text: "Drag rows with the grip handle to rank them. The first eligible model is tried first; failures fall through immediately. Failed models cool down for 30 seconds, with repeated failures extending the cooldown up to 30 minutes.",
+      text: "Drag rows with the grip handle to rank them, or remove any row. The first eligible model is tried first; failures fall through immediately. Failed models cool down for 30 seconds, with repeated failures extending the cooldown up to 30 minutes.",
     });
 
     let draggedModelId: string | null = null;
@@ -1300,7 +1467,62 @@ class InlineCompleteSettingTab extends PluginSettingTab {
             this.display();
           }),
       );
+      modelSetting.addExtraButton((button) =>
+        button
+          .setIcon("trash-2")
+          .setTooltip(`Remove ${model.shortName}`)
+          .onClick(async () => {
+            await this.plugin.removeModel(model.id);
+            this.display();
+          }),
+      );
     });
+
+    if (rankedModels.length === 0) {
+      containerEl.createEl("p", {
+        cls: "onward-settings-note",
+        text: "No models configured. Add an OpenRouter model to resume completions.",
+      });
+    }
+
+    new Setting(containerEl)
+      .setName("Add OpenRouter model")
+      .setDesc(
+        "Fetch OpenRouter's text-model catalogue, search by model ID or name, and add the selected model to the end of the fallback order.",
+      )
+      .addExtraButton((button) =>
+        button
+          .setIcon("plus")
+          .setTooltip("Add an OpenRouter model")
+          .onClick(async () => {
+            button.setDisabled(true);
+            try {
+              const selectedIds = new Set(
+                this.plugin.settings.modelPriority,
+              );
+              const models = (await this.plugin.loadOpenRouterModels())
+                .filter((model) => !selectedIds.has(model.id));
+              if (models.length === 0) {
+                new Notice("All available OpenRouter models are already added.");
+                return;
+              }
+              new OpenRouterModelSuggestModal(
+                this.app,
+                models,
+                async (model) => {
+                  await this.plugin.addOpenRouterModel(model.id);
+                  this.display();
+                },
+              ).open();
+            } catch (error) {
+              const message =
+                error instanceof Error ? error.message : String(error);
+              new Notice(`Onward: ${message}`, 6000);
+            } finally {
+              button.setDisabled(false);
+            }
+          }),
+      );
 
     new Setting(containerEl)
       .setName("Pause before showing")

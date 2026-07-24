@@ -48,10 +48,15 @@ response containing the active file through the cursor. OpenRouter models
 receive real role pairs; raw Tinker models receive the same session as one
 causal transcript.
 
-Available models:
+The initial fallback list contains:
 
 - Tinker: Qwen3.5 35B-A3B Base and Qwen3.5 9B Base
 - OpenRouter prefill: Kimi K2, Claude Opus 4.5, and Claude Opus 4.6
+
+Every row can be reordered or removed. The plus button opens a searchable list
+from OpenRouter's public model catalogue; selecting a text model appends it to
+the fallback order. Added models use the broadly compatible emulated-prefill
+layout unless Onward has a curated native-prefill definition for that ID.
 
 Claude Opus 4.6 rejects native assistant-message prefill. For that model, the
 plugin uses the nearest supported equivalent: the document prefix is an
@@ -65,7 +70,8 @@ environment inherited by the Obsidian desktop process, according to the
 selected model. If Obsidian was launched from the macOS Dock, shell environment
 variables often are not inherited; in that case, paste the relevant keys into
 **Settings → Community plugins → Onward** and rank the models with the
-drag handles or keyboard-friendly up/down controls.
+drag handles or keyboard-friendly up/down controls. The OpenRouter model
+catalogue request contains no note content.
 
 API keys are never logged. The first eligible service receives note content
 whenever a completion request starts. If that request fails, later fallback
