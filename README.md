@@ -2,7 +2,7 @@
 
 Onward is Copilot-style sentence continuation for Obsidian:
 
-https://github.com/user-attachments/assets/74668776-7d5c-40bd-a9f6-5bc8e732eb0c
+https://github.com/user-attachments/assets/3308a2bd-a92b-4de5-99cd-285039372430
 
 - waits for a real pause before revealing anything (2 seconds by default);
 - quietly prefetches during that pause so model latency is mostly hidden;
