@@ -17,6 +17,47 @@
   font-family: var(--font-monospace);
 }
 
+.onward-model-rank {
+  position: relative;
+  transition:
+    background-color 100ms ease,
+    opacity 100ms ease;
+}
+
+.onward-model-drag-handle {
+  cursor: grab;
+  touch-action: none;
+}
+
+.onward-model-drag-handle:active {
+  cursor: grabbing;
+}
+
+.onward-model-rank.is-dragging {
+  opacity: 0.45;
+}
+
+.onward-model-rank.is-drop-before::before,
+.onward-model-rank.is-drop-after::after {
+  background: var(--interactive-accent);
+  border-radius: 999px;
+  content: "";
+  height: 2px;
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  z-index: 1;
+}
+
+.onward-model-rank.is-drop-before::before {
+  top: -1px;
+}
+
+.onward-model-rank.is-drop-after::after {
+  bottom: -1px;
+}
+
 .onward-status {
   border-radius: var(--radius-s);
   cursor: pointer;

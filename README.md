@@ -65,7 +65,7 @@ environment inherited by the Obsidian desktop process, according to the
 selected model. If Obsidian was launched from the macOS Dock, shell environment
 variables often are not inherited; in that case, paste the relevant keys into
 **Settings → Community plugins → Onward** and rank the models with the
-up/down controls.
+drag handles or keyboard-friendly up/down controls.
 
 API keys are never logged. The first eligible service receives note content
 whenever a completion request starts. If that request fails, later fallback

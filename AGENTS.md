@@ -89,6 +89,9 @@ file as the project handoff for future agents.
   entries with missing keys or active circuit-breaker cooldowns. A failed
   request falls through immediately; a successful request resets that model's
   failure state.
+- Settings rows are draggable by their grip handles and show a before/after
+  insertion marker. Keep the arrow buttons as an accessible fallback; every
+  reorder path must persist `modelPriority` and refresh live controllers.
 - The first request failure cools a model for 30 seconds. A failure from an
   attempt started within 30 seconds after recovery doubles its cooldown, capped
   at 30 minutes. Keep these calculations pure in `completion.ts`.

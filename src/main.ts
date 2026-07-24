@@ -36,6 +36,7 @@ import {
   nextModelFailureCooldown,
   normalizeModelPriority,
   reconcileCompletionBoundary,
+  reorderModelPriority,
   requestStartDelay,
   sanitizeCompletion,
   shouldClearGhostText,
@@ -45,6 +46,7 @@ import {
   type CompletionSnapshot,
   type FormattedCompletionPrompt,
   type ModelFailureCooldown,
+  type ModelDropPlacement,
 } from "./completion";
 
 interface InlineCompleteSettings {
@@ -949,6 +951,25 @@ export default class InlineCompletePlugin extends Plugin {
     for (const controller of this.liveControllers) controller.refresh();
   }
 
+  async moveModelTo(
+    movedModelId: string,
+    targetModelId: string,
+    placement: ModelDropPlacement,
+  ): Promise<void> {
+    const priority = reorderModelPriority(
+      this.settings.modelPriority,
+      movedModelId,
+      targetModelId,
+      placement,
+    );
+    if (priority === this.settings.modelPriority) return;
+
+    this.settings.modelPriority = priority;
+    await this.saveSettings();
+    this.setStatus("idle", "Model fallback order changed");
+    for (const controller of this.liveControllers) controller.refresh();
+  }
+
   isModelCoolingDown(modelId: string, now = Date.now()): boolean {
     const state = this.modelCircuits.get(modelId);
     return state !== undefined && state.cooldownUntil > now;
@@ -1142,9 +1163,66 @@ class InlineCompleteSettingTab extends PluginSettingTab {
     containerEl.createEl("h3", { text: "Model fallback order" });
     containerEl.createEl("p", {
       cls: "onward-settings-note",
-      text: "The first eligible model is tried first. If it fails, the next model is tried immediately. Failed models cool down for 30 seconds; a failure immediately after recovery doubles that model's cooldown, up to 30 minutes.",
+      text: "Drag rows with the grip handle to rank them. The first eligible model is tried first; failures fall through immediately. Failed models cool down for 30 seconds, with repeated failures extending the cooldown up to 30 minutes.",
     });
 
+    let draggedModelId: string | null = null;
+    let dragTarget: { modelId: string; placement: ModelDropPlacement } | null = null;
+    const clearDragState = (): void => {
+      containerEl
+        .querySelectorAll(".onward-model-rank")
+        .forEach((row) =>
+          row.classList.remove(
+            "is-dragging",
+            "is-drop-before",
+            "is-drop-after",
+          ),
+        );
+    };
+    const updateDragTarget = (clientX: number, clientY: number): void => {
+      containerEl
+        .querySelectorAll(".onward-model-rank")
+        .forEach((row) =>
+          row.classList.remove("is-drop-before", "is-drop-after"),
+        );
+
+      const targetRow = document
+        .elementFromPoint(clientX, clientY)
+        ?.closest<HTMLElement>(".onward-model-rank");
+      const targetModelId = targetRow?.dataset.modelId;
+      if (
+        !targetRow ||
+        !targetModelId ||
+        targetModelId === draggedModelId
+      ) {
+        dragTarget = null;
+        return;
+      }
+
+      const bounds = targetRow.getBoundingClientRect();
+      const placement: ModelDropPlacement =
+        clientY < bounds.top + bounds.height / 2
+          ? "before"
+          : "after";
+      dragTarget = { modelId: targetModelId, placement };
+      targetRow.addClass(
+        placement === "before" ? "is-drop-before" : "is-drop-after",
+      );
+    };
+    const finishDrag = async (): Promise<void> => {
+      const movedModelId = draggedModelId;
+      const target = dragTarget;
+      draggedModelId = null;
+      dragTarget = null;
+      clearDragState();
+      if (!movedModelId || !target) return;
+      await this.plugin.moveModelTo(
+        movedModelId,
+        target.modelId,
+        target.placement,
+      );
+      this.display();
+    };
     const rankedModels = this.plugin.getRankedModels();
     rankedModels.forEach((model, index) => {
       const backend =
@@ -1156,6 +1234,51 @@ class InlineCompleteSettingTab extends PluginSettingTab {
       const modelSetting = new Setting(containerEl)
         .setName(`${index + 1}. ${model.shortName}`)
         .setDesc(`${backend} · ${model.apiModel}`);
+      modelSetting.settingEl.addClass("onward-model-rank");
+      modelSetting.settingEl.dataset.modelId = model.id;
+
+      modelSetting.addExtraButton((button) => {
+        button
+          .setIcon("grip-vertical")
+          .setTooltip(`Drag ${model.shortName} to reorder`);
+        const handleEl = button.extraSettingsEl;
+        handleEl.addClass("onward-model-drag-handle");
+        handleEl.setAttribute(
+          "aria-label",
+          `Drag ${model.shortName} to reorder`,
+        );
+        handleEl.addEventListener("mousedown", (event) => {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          draggedModelId = model.id;
+          dragTarget = null;
+          modelSetting.settingEl.addClass("is-dragging");
+          const onMouseMove = (moveEvent: MouseEvent): void => {
+            if (draggedModelId !== model.id) return;
+            moveEvent.preventDefault();
+            updateDragTarget(moveEvent.clientX, moveEvent.clientY);
+          };
+          const stopListening = (): void => {
+            window.removeEventListener("mousemove", onMouseMove);
+            window.removeEventListener("mouseup", onMouseUp);
+            window.removeEventListener("blur", onBlur);
+          };
+          const onMouseUp = (upEvent: MouseEvent): void => {
+            upEvent.preventDefault();
+            stopListening();
+            void finishDrag();
+          };
+          const onBlur = (): void => {
+            stopListening();
+            draggedModelId = null;
+            dragTarget = null;
+            clearDragState();
+          };
+          window.addEventListener("mousemove", onMouseMove);
+          window.addEventListener("mouseup", onMouseUp, { once: true });
+          window.addEventListener("blur", onBlur, { once: true });
+        });
+      });
 
       modelSetting.addExtraButton((button) =>
         button
@@ -1177,7 +1300,6 @@ class InlineCompleteSettingTab extends PluginSettingTab {
             this.display();
           }),
       );
-      modelSetting.settingEl.addClass("onward-model-rank");
     });
 
     new Setting(containerEl)

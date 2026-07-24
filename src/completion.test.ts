@@ -14,6 +14,7 @@ import {
   normalizeModelPriority,
   reconcileCompletionBoundary,
   requestStartDelay,
+  reorderModelPriority,
   RAW_COMPLETION_STOP_SEQUENCES,
   sanitizeCompletion,
   shouldClearGhostText,
@@ -379,6 +380,39 @@ describe("model fallback configuration", () => {
     ]);
     expect(priority).toHaveLength(DEFAULT_MODEL_PRIORITY.length);
     expect(new Set(priority).size).toBe(DEFAULT_MODEL_PRIORITY.length);
+  });
+
+  it("moves a model before a later row", () => {
+    expect(
+      reorderModelPriority(
+        ["a", "b", "c", "d"],
+        "a",
+        "c",
+        "before",
+      ),
+    ).toEqual(["b", "a", "c", "d"]);
+  });
+
+  it("moves a model after an earlier row", () => {
+    expect(
+      reorderModelPriority(
+        ["a", "b", "c", "d"],
+        "d",
+        "b",
+        "after",
+      ),
+    ).toEqual(["a", "b", "d", "c"]);
+  });
+
+  it("leaves invalid or self-drops unchanged", () => {
+    const priority = ["a", "b", "c"];
+
+    expect(
+      reorderModelPriority(priority, "b", "b", "before"),
+    ).toBe(priority);
+    expect(
+      reorderModelPriority(priority, "missing", "b", "after"),
+    ).toBe(priority);
   });
 });
 

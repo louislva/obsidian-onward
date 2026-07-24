@@ -97,6 +97,32 @@ export function normalizeModelPriority(
   return normalized;
 }
 
+export type ModelDropPlacement = "before" | "after";
+
+export function reorderModelPriority(
+  priority: string[],
+  movedModelId: string,
+  targetModelId: string,
+  placement: ModelDropPlacement,
+): string[] {
+  if (
+    movedModelId === targetModelId ||
+    !priority.includes(movedModelId) ||
+    !priority.includes(targetModelId)
+  ) {
+    return priority;
+  }
+
+  const reordered = priority.filter(
+    (modelId) => modelId !== movedModelId,
+  );
+  const targetIndex = reordered.indexOf(targetModelId);
+  const insertionIndex =
+    targetIndex + (placement === "after" ? 1 : 0);
+  reordered.splice(insertionIndex, 0, movedModelId);
+  return reordered;
+}
+
 export const FAILURE_COOLDOWN_BASE_MS = 30_000;
 export const FAILURE_COOLDOWN_MAX_MS = 30 * 60_000;
 export const FAILURE_RECOVERY_WINDOW_MS = 30_000;
