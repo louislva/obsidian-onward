@@ -1173,7 +1173,7 @@ export default class InlineCompletePlugin extends Plugin {
     if (keyedModels.length === 0) {
       this.setStatus(
         "missing-key",
-        "No ranked model has an available API key. Set TINKER_API_KEY or OPENROUTER_API_KEY, or save keys in plugin settings.",
+        "No ranked model has an available API key. Set OPENROUTER_API_KEY or save a key in plugin settings.",
       );
     } else {
       const now = Date.now();
@@ -1199,7 +1199,7 @@ export default class InlineCompletePlugin extends Plugin {
     this.missingKeyNotified = true;
     new Notice(
       keyedModels.length === 0
-        ? "Onward needs a Tinker or OpenRouter API key."
+        ? "Onward needs an OpenRouter API key."
         : "Onward: all configured models are temporarily cooling down.",
       8000,
     );
@@ -1273,14 +1273,12 @@ class InlineCompleteSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.createEl("h2", { text: "Onward" });
 
-    const hasTinkerKey = Boolean(this.plugin.getApiKey("tinker"));
     const hasOpenRouterKey = Boolean(
       this.plugin.getApiKey("openrouter-prefill"),
     );
     containerEl.createEl("p", {
       cls: "onward-settings-note",
       text: [
-        `Tinker key: ${hasTinkerKey ? "available" : "missing"}.`,
         `OpenRouter key: ${hasOpenRouterKey ? "available" : "missing"}.`,
         "Environment variables take precedence over saved keys. Fallback services may receive the active note sequentially when an earlier model fails.",
       ].join(" "),
@@ -1312,6 +1310,9 @@ class InlineCompleteSettingTab extends PluginSettingTab {
       });
     apiSetting.settingEl.addClass("onward-secret");
 
+    // Tinker is dormant for now. Preserve its saved key and backend code so
+    // the experiment can be resumed without losing local configuration.
+    /*
     const tinkerApiSetting = new Setting(containerEl)
       .setName("Tinker API key")
       .setDesc("Fallback when TINKER_API_KEY is not available to Obsidian.")
@@ -1326,6 +1327,7 @@ class InlineCompleteSettingTab extends PluginSettingTab {
         text.inputEl.type = "password";
       });
     tinkerApiSetting.settingEl.addClass("onward-secret");
+    */
 
     containerEl.createEl("h3", { text: "Model fallback order" });
     containerEl.createEl("p", {

@@ -343,6 +343,14 @@ describe("requestStartDelay", () => {
 });
 
 describe("model fallback configuration", () => {
+  it("defaults to Opus 4.6, Opus 4.5, then K2", () => {
+    expect(DEFAULT_MODEL_PRIORITY).toEqual([
+      "anthropic/claude-opus-4.6",
+      "anthropic/claude-opus-4.5",
+      "moonshotai/kimi-k2",
+    ]);
+  });
+
   it("migrates the legacy selected model to the top of the ranking", () => {
     const priority = normalizeModelPriority(
       undefined,

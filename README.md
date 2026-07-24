@@ -4,11 +4,9 @@ Onward is Copilot-style sentence continuation for Obsidian:
 
 - waits for a real pause before revealing anything (2 seconds by default);
 - quietly prefetches during that pause so model latency is mostly hidden;
-- supports context-enriched literal next-token completion with Tinker's
-  Qwen3.5 base models;
 - supports context-enriched assistant prefill with selected OpenRouter chat
   models;
-- tries models in a configurable fallback order across both services;
+- tries models in a configurable fallback order;
 - temporarily skips failing models with an exponential cooldown;
 - shows the continuation as gray ghost text;
 - reports the current model and request state in Obsidian's status bar;
@@ -22,21 +20,21 @@ note: it deduplicates spaces, supplies a missing prose space, attaches
 punctuation, and removes accidental spaces before punctuation. Newlines, tabs,
 and Markdown hard-break spaces are preserved.
 
-The settings contain one ranked list mixing Tinker and OpenRouter models. The
-first model with an available API key that is not cooling down is tried first.
+The settings contain one ranked list of OpenRouter models. The first model with
+an available API key that is not cooling down is tried first.
 If its request fails, the plugin immediately tries the next eligible model.
 The first failure cools that model down for 30 seconds. If it fails again
 immediately after the cooldown expires, the next cooldown doubles to 60
 seconds, then 2 minutes, 4 minutes, and so on, capped at 30 minutes. A successful
 request resets that model's failure history.
 
-The initial order starts with `Qwen/Qwen3.5-35B-A3B-Base` on Tinker. Existing
+The initial order is Claude Opus 4.6, Claude Opus 4.5, then Kimi K2. Existing
 installations migrate their saved single-model choice to the top and append the
-other choices underneath it. Prompts first read yesterday's and today's
+default choices underneath it. Prompts first read yesterday's and today's
 journals from the configurable `Journal` folder when they exist, excluding the
-active file. They then simulate readable retrieval of direct web links and
-vault links from the active note. Webpages are reduced to Reader View-style
-Markdown and linked vault files are resolved through Obsidian.
+active file. They then simulate readable retrieval of direct web links and vault
+links from the active note. Webpages are reduced to Reader View-style Markdown
+and linked vault files are resolved through Obsidian.
 
 The default line-aware layout presents the lines before the cursor line, then
 the lines following it, using synthetic `sed -n` command/response pairs. The
@@ -45,13 +43,13 @@ through the cursor. This gives completion models both preceding and later
 document context while leaving the target line as the causal continuation.
 Turning off **Line-aware prompt layout** restores a single `vault.read`
 response containing the active file through the cursor. OpenRouter models
-receive real role pairs; raw Tinker models receive the same session as one
-causal transcript.
+receive real role pairs.
 
-The initial fallback list contains:
+The initial fallback list contains, in order:
 
-- Tinker: Qwen3.5 35B-A3B Base and Qwen3.5 9B Base
-- OpenRouter prefill: Kimi K2, Claude Opus 4.5, and Claude Opus 4.6
+1. Claude Opus 4.6
+2. Claude Opus 4.5
+3. Kimi K2
 
 Every row can be reordered or removed. The plus button opens a searchable list
 from OpenRouter's public model catalogue; selecting a text model appends it to
@@ -65,11 +63,10 @@ that exact text. Opus 4.5 and Kimi use a native final-assistant prefill.
 
 ## API keys
 
-The plugin first reads `TINKER_API_KEY` or `OPENROUTER_API_KEY` from the
-environment inherited by the Obsidian desktop process, according to the
-selected model. If Obsidian was launched from the macOS Dock, shell environment
-variables often are not inherited; in that case, paste the relevant keys into
-**Settings → Community plugins → Onward** and rank the models with the
+The plugin first reads `OPENROUTER_API_KEY` from the environment inherited by
+the Obsidian desktop process. If Obsidian was launched from the macOS Dock,
+shell environment variables often are not inherited; in that case, paste the
+key into **Settings → Community plugins → Onward** and rank the models with the
 drag handles or keyboard-friendly up/down controls. The OpenRouter model
 catalogue request contains no note content.
 
@@ -82,12 +79,11 @@ plus direct web and vault links unless **Read supporting context** is disabled.
 ## Status indicator
 
 The bottom-right status item uses the short name of the model currently being
-tried or whose suggestion is visible, such as `Qwen 35B`, `K2`, or `Opus 4.5`.
+tried or whose suggestion is visible, such as `K2` or `Opus 4.5`.
 It reports `waiting`, `generating`, `generated · shown`, or `generated · not
 shown`, plus `missing key` and `error` when a request cannot run. Hover it to
 see fallback and cooldown details. Click the status item to inspect the exact
-last model-facing prompt. Raw models show the causal transcript unchanged;
-chat models show the complete message array as formatted JSON.
+last model-facing prompt as a complete message array in formatted JSON.
 
 ## Development
 

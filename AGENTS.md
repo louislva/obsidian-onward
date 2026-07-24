@@ -85,7 +85,7 @@ file as the project handoff for future agents.
 - The bottom-right Obsidian status item uses short model names and reports:
   `waiting`, `generating`, `generated · shown`,
   `generated · not shown`, `missing key`, or `error`.
-- Models are configured as one cross-provider `modelPriority` ranking. Skip
+- Models are configured as one `modelPriority` ranking. Skip
   entries with missing keys or active circuit-breaker cooldowns. A failed
   request falls through immediately; a successful request resets that model's
   failure state.
@@ -124,15 +124,19 @@ file as the project handoff for future agents.
 
 ## Models and API semantics
 
-`COMPLETION_MODELS` seeds new installations and preserves special semantics for
-the built-in Tinker, K2, and Opus entries. Existing saved `model` dropdown
-values are migrated to the top of a default ranking. Once `modelPriority` is
-present, its order and membership are authoritative. Unknown valid IDs are
-treated as OpenRouter chat models using assistant-history emulated prefill.
+`DEFAULT_MODEL_PRIORITY` seeds new installations with Opus 4.6, Opus 4.5, then
+K2. `COMPLETION_MODELS` preserves special semantics for those entries and the
+dormant Tinker models. Existing saved `model` dropdown values are migrated to
+the top of a default ranking. Once `modelPriority` is present, its order and
+membership are authoritative. Unknown valid IDs are treated as OpenRouter chat
+models using assistant-history emulated prefill.
 
-### Tinker raw completion
+### Dormant Tinker raw completion
 
-- `Qwen/Qwen3.5-35B-A3B-Base` (`Qwen 35B`, current default)
+- Tinker models are excluded from the default ranking and Louis's installed
+  ranking. The Tinker API-key field is commented out in the settings UI.
+  Preserve the dormant backend and saved `tinkerApiKey` value.
+- `Qwen/Qwen3.5-35B-A3B-Base` (`Qwen 35B`)
 - `Qwen/Qwen3.5-9B-Base` (`Qwen 9B`)
 - Endpoint:
   `https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1/completions`
@@ -169,10 +173,13 @@ treated as OpenRouter chat models using assistant-history emulated prefill.
 
 ## Keys and privacy
 
-- Tinker uses `TINKER_API_KEY`; OpenRouter uses `OPENROUTER_API_KEY`.
+- OpenRouter uses `OPENROUTER_API_KEY`. The visible settings UI only exposes
+  the OpenRouter key.
+- Dormant Tinker support reads `TINKER_API_KEY` or the preserved
+  `tinkerApiKey` setting when a legacy Tinker model remains explicitly ranked.
 - Environment variables take precedence over keys saved in plugin settings.
 - Obsidian launched from the macOS Dock may not inherit shell environment
-  variables, which is why both password fields exist.
+  variables, which is why the OpenRouter password field exists.
 - Never print, log, commit, replace, or expose saved key values.
 - It is safe to inspect boolean key presence when diagnosing configuration.
 - The selected service receives note content on each completion request. It

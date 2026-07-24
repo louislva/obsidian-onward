@@ -54,10 +54,12 @@ export const COMPLETION_MODELS: CompletionModel[] = [
   },
 ];
 
-export const DEFAULT_MODEL_ID = COMPLETION_MODELS[0].id;
-export const DEFAULT_MODEL_PRIORITY = COMPLETION_MODELS.map(
-  (model) => model.id,
-);
+export const DEFAULT_MODEL_PRIORITY = [
+  "anthropic/claude-opus-4.6",
+  "anthropic/claude-opus-4.5",
+  "moonshotai/kimi-k2",
+];
+export const DEFAULT_MODEL_ID = DEFAULT_MODEL_PRIORITY[0];
 
 function genericOpenRouterShortName(id: string): string {
   const slug = id.split("/").at(-1) ?? id;

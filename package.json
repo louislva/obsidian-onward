@@ -1,7 +1,7 @@
 {
   "name": "obsidian-onward",
   "version": "0.7.0",
-  "description": "Onward: Copilot-style inline prose completion for Obsidian via Tinker and OpenRouter.",
+  "description": "Onward: Copilot-style inline prose completion for Obsidian via OpenRouter.",
   "private": true,
   "type": "module",
   "scripts": {
