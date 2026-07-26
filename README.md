@@ -12,6 +12,8 @@ https://github.com/user-attachments/assets/3308a2bd-a92b-4de5-99cd-285039372430
 - temporarily skips failing models with an exponential cooldown;
 - shows the continuation as gray ghost text;
 - reports the current model and request state in Obsidian's status bar;
+- shows how much of the latest OpenRouter input was recalled from the prompt
+  cache;
 - accepts with **Tab** and dismisses with **Escape**;
 - cancels stale requests as soon as typing resumes.
 
@@ -100,8 +102,11 @@ The bottom-right status item uses the short name of the model currently being
 tried or whose suggestion is visible, such as `K2` or `Opus 4.5`.
 It reports `waiting`, `generating`, `generated · shown`, or `generated · not
 shown`, plus `missing key` and `error` when a request cannot run. Hover it to
-see fallback and cooldown details. Click the status item to inspect the exact
-last model-facing prompt as a complete message array in formatted JSON.
+see fallback and cooldown details. A subtle ring beside it shows the share of
+the latest successful OpenRouter request's input tokens recalled from the
+provider prompt cache; hover for the exact percentage and token counts. Click
+the status item to inspect the exact last model-facing prompt as a complete
+message array in formatted JSON.
 
 ## Development
 

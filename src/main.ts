@@ -38,6 +38,7 @@ import {
   getCompletionModel,
   nextModelFailureCooldown,
   normalizeModelPriority,
+  parsePromptCacheUsage,
   reconcileCompletionBoundary,
   reorderModelPriority,
   requestStartDelay,
@@ -50,6 +51,7 @@ import {
   type FormattedCompletionPrompt,
   type ModelFailureCooldown,
   type ModelDropPlacement,
+  type PromptCacheUsage,
 } from "./completion";
 import {
   createPendingTrainingExample,
@@ -113,6 +115,7 @@ interface CompletionResponse {
   }>;
   error?: { message?: string };
   detail?: string;
+  usage?: unknown;
 }
 
 interface OpenRouterCatalogModel {
@@ -143,6 +146,11 @@ interface FailedModelAttempt {
 interface PromptPreview extends FormattedCompletionPrompt {
   model: CompletionModel;
   builtAt: number;
+}
+
+interface PromptCacheObservation {
+  model: CompletionModel;
+  usage: PromptCacheUsage | null;
 }
 
 type CompletionStatus =
@@ -545,6 +553,9 @@ class CompletionController {
             );
           }
 
+          if (!isTinker) {
+            this.plugin.recordPromptCacheUsage(model, payload.usage);
+          }
           const raw =
             payload.choices?.[0]?.message?.content ??
             payload.choices?.[0]?.text ??
@@ -865,7 +876,10 @@ export default class InlineCompletePlugin extends Plugin {
   private lastErrorAt = 0;
   private modelCircuits = new Map<string, ModelCircuitState>();
   private statusBarItem: HTMLElement | null = null;
+  private statusLabelEl: HTMLElement | null = null;
+  private cacheIndicatorEl: HTMLElement | null = null;
   private statusModel: CompletionModel | null = null;
+  private latestPromptCache: PromptCacheObservation | null = null;
   private promptPreviews = new Map<string, PromptPreview>();
   private openRouterCatalog:
     | { loadedAt: number; models: OpenRouterCatalogModel[] }
@@ -882,6 +896,13 @@ export default class InlineCompletePlugin extends Plugin {
     this.statusBarItem.addClass("onward-status");
     this.statusBarItem.setAttribute("role", "button");
     this.statusBarItem.setAttribute("tabindex", "0");
+    this.statusLabelEl = this.statusBarItem.createSpan({
+      cls: "onward-status-label",
+    });
+    this.cacheIndicatorEl = this.statusBarItem.createSpan({
+      cls: "onward-cache-ring",
+    });
+    this.cacheIndicatorEl.setAttribute("aria-hidden", "true");
     this.registerDomEvent(this.statusBarItem, "click", () => {
       this.openPromptPreview();
     });
@@ -1050,32 +1071,81 @@ export default class InlineCompletePlugin extends Plugin {
     ).open();
   }
 
+  recordPromptCacheUsage(
+    model: CompletionModel,
+    usage: unknown,
+  ): void {
+    this.latestPromptCache = {
+      model,
+      usage: parsePromptCacheUsage(usage),
+    };
+    this.renderPromptCacheIndicator();
+  }
+
+  private promptCacheDetail(): string {
+    if (!this.latestPromptCache) {
+      return "Prompt cache: no completed OpenRouter request yet";
+    }
+    const { model, usage } = this.latestPromptCache;
+    if (!usage) {
+      return `Prompt cache · ${model.shortName}: usage unavailable`;
+    }
+
+    const percentage = usage.percentage.toLocaleString(undefined, {
+      maximumFractionDigits: 1,
+    });
+    const read = `${usage.cachedTokens.toLocaleString()} of ${usage.promptTokens.toLocaleString()} input tokens recalled`;
+    const written =
+      usage.cacheWriteTokens > 0
+        ? `; ${usage.cacheWriteTokens.toLocaleString()} written to cache`
+        : "";
+    return `Prompt cache · ${model.shortName}: ${percentage}% (${read}${written})`;
+  }
+
+  private renderPromptCacheIndicator(): void {
+    if (!this.cacheIndicatorEl) return;
+    const usage = this.latestPromptCache?.usage;
+    const percentage = usage?.percentage ?? 0;
+    this.cacheIndicatorEl.style.setProperty(
+      "--onward-cache-percent",
+      `${percentage}%`,
+    );
+    this.cacheIndicatorEl.classList.toggle("is-unavailable", !usage);
+    this.cacheIndicatorEl.setAttribute(
+      "title",
+      this.promptCacheDetail(),
+    );
+  }
+
   setStatus(
     status: CompletionStatus,
     detail?: string,
     statusModel?: CompletionModel,
   ): void {
-    if (!this.statusBarItem) return;
+    if (!this.statusBarItem || !this.statusLabelEl) return;
 
     const model = statusModel ?? this.getPreferredModel();
     this.statusModel = model;
     const shortName = model?.shortName ?? "No model";
-    this.statusBarItem.textContent = `${shortName} · ${STATUS_LABELS[status]}`;
+    this.statusLabelEl.textContent =
+      `${shortName} · ${STATUS_LABELS[status]}`;
     this.statusBarItem.dataset.state = status;
     this.statusBarItem.setAttribute(
       "aria-label",
-      `Onward: ${shortName}, ${STATUS_LABELS[status]}`,
+      `Onward: ${shortName}, ${STATUS_LABELS[status]}. ${this.promptCacheDetail()}`,
     );
     this.statusBarItem.setAttribute(
       "title",
       [
         model?.label,
         detail,
+        this.promptCacheDetail(),
         model ? "Click to inspect the last full prompt" : "",
       ]
         .filter(Boolean)
         .join("\n"),
     );
+    this.renderPromptCacheIndicator();
   }
 
   async loadOpenRouterModels(): Promise<OpenRouterCatalogModel[]> {

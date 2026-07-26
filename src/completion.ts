@@ -192,9 +192,17 @@ export function nextModelFailureCooldown(
   };
 }
 
+export interface CompletionTextBlock {
+  type: "text";
+  text: string;
+  cache_control?: {
+    type: "ephemeral";
+  };
+}
+
 export interface CompletionMessage {
   role: "system" | "user" | "assistant";
-  content: string;
+  content: string | CompletionTextBlock[];
 }
 
 export interface CompletionRequestOptions {
@@ -218,9 +226,64 @@ export interface CompletionRequest {
     prompt?: string;
     stop?: string[];
     messages?: CompletionMessage[];
+    session_id?: string;
     provider?: {
       sort?: "latency";
     };
+  };
+}
+
+export interface PromptCacheUsage {
+  promptTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  percentage: number;
+}
+
+export function parsePromptCacheUsage(
+  usage: unknown,
+): PromptCacheUsage | null {
+  if (!usage || typeof usage !== "object") return null;
+  const promptTokens = Reflect.get(usage, "prompt_tokens");
+  const details = Reflect.get(usage, "prompt_tokens_details");
+  if (
+    typeof promptTokens !== "number" ||
+    !Number.isFinite(promptTokens) ||
+    promptTokens < 0 ||
+    !details ||
+    typeof details !== "object"
+  ) {
+    return null;
+  }
+
+  const cachedTokens = Reflect.get(details, "cached_tokens");
+  const rawCacheWriteTokens = Reflect.get(
+    details,
+    "cache_write_tokens",
+  );
+  if (
+    typeof cachedTokens !== "number" ||
+    !Number.isFinite(cachedTokens) ||
+    cachedTokens < 0
+  ) {
+    return null;
+  }
+  const cacheWriteTokens =
+    typeof rawCacheWriteTokens === "number" &&
+    Number.isFinite(rawCacheWriteTokens) &&
+    rawCacheWriteTokens >= 0
+      ? rawCacheWriteTokens
+      : 0;
+  const percentage =
+    promptTokens === 0
+      ? 0
+      : Math.min(100, (cachedTokens / promptTokens) * 100);
+
+  return {
+    promptTokens,
+    cachedTokens,
+    cacheWriteTokens,
+    percentage,
   };
 }
 
@@ -439,6 +502,77 @@ export function buildPrefillMessages(
   return messages;
 }
 
+const PROMPT_CACHE_CONTROL = {
+  type: "ephemeral" as const,
+};
+const SINGLE_LINE_CACHE_CHUNK_CHARACTERS = 2048;
+
+function cacheableContent(content: string): CompletionTextBlock[] {
+  return [{
+    type: "text",
+    text: content,
+    cache_control: PROMPT_CACHE_CONTROL,
+  }];
+}
+
+function stablePrefixLength(content: string): number {
+  const currentLineStart = content.lastIndexOf("\n") + 1;
+  if (currentLineStart > 0) return currentLineStart;
+  if (content.length <= SINGLE_LINE_CACHE_CHUNK_CHARACTERS) return 0;
+  return (
+    Math.floor(
+      (content.length - 1) / SINGLE_LINE_CACHE_CHUNK_CHARACTERS,
+    ) * SINGLE_LINE_CACHE_CHUNK_CHARACTERS
+  );
+}
+
+export function addPromptCacheBreakpoint(
+  messages: CompletionMessage[],
+  snapshot: CompletionSnapshot,
+  mode: "native" | "assistant-history",
+  lineContextEnabled: boolean,
+): CompletionMessage[] {
+  const cachedMessages = messages.map((message) => ({ ...message }));
+  const cursorAssistantIndex =
+    cachedMessages.length - (mode === "assistant-history" ? 2 : 1);
+  const cursorAssistant = cachedMessages[cursorAssistantIndex];
+
+  if (!lineContextEnabled && cursorAssistant) {
+    const content = canonicalizeCompletionPrefix(
+      snapshot.document.slice(0, snapshot.cursor),
+    );
+    const boundary = stablePrefixLength(content);
+    if (boundary > 0) {
+      const stable = content.slice(0, boundary);
+      const changing = content.slice(boundary);
+      cursorAssistant.content = [
+        ...cacheableContent(stable),
+        ...(changing
+          ? [{ type: "text" as const, text: changing }]
+          : []),
+      ];
+      return cachedMessages;
+    }
+  }
+
+  const priorContextIndex = Math.max(0, cursorAssistantIndex - 2);
+  const priorContext = cachedMessages[priorContextIndex];
+  if (priorContext && typeof priorContext.content === "string") {
+    priorContext.content = cacheableContent(priorContext.content);
+  }
+  return cachedMessages;
+}
+
+function promptCacheSessionId(snapshot: CompletionSnapshot): string {
+  const identity = snapshot.path ?? `${snapshot.title}.md`;
+  let hash = 2166136261;
+  for (let index = 0; index < identity.length; index += 1) {
+    hash ^= identity.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `onward-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
 export function buildCompletionRequest(
   model: CompletionModel,
   snapshot: CompletionSnapshot,
@@ -470,17 +604,25 @@ export function buildCompletionRequest(
   const provider = options.routeByLatency
     ? { sort: "latency" as const }
     : undefined;
+  const prefillMode = model.prefillMode ?? "native";
+  const messages = buildPrefillMessages(
+    snapshot,
+    prefillMode,
+    options.promptContext,
+    options.lineContextEnabled,
+  );
 
   return {
     url: "https://openrouter.ai/api/v1/chat/completions",
     body: {
       ...common,
-      messages: buildPrefillMessages(
+      messages: addPromptCacheBreakpoint(
+        messages,
         snapshot,
-        model.prefillMode ?? "native",
-        options.promptContext,
-        options.lineContextEnabled,
+        prefillMode,
+        options.lineContextEnabled ?? false,
       ),
+      session_id: promptCacheSessionId(snapshot),
       ...(provider ? { provider } : {}),
     },
   };

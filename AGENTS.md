@@ -96,6 +96,11 @@ file as the project handoff for future agents.
 - The bottom-right Obsidian status item uses short model names and reports:
   `waiting`, `generating`, `generated · shown`,
   `generated · not shown`, `missing key`, or `error`.
+- The subtle ring beside the status text visualizes
+  `usage.prompt_tokens_details.cached_tokens / usage.prompt_tokens` for the
+  latest successful OpenRouter response. Its hover text gives the exact
+  percentage, cache-read tokens, total input tokens, and cache-write tokens.
+  Missing telemetry is visually distinct from a measured 0% cache hit.
 - Models are configured as one `modelPriority` ranking. Skip
   entries with missing keys or active circuit-breaker cooldowns. A failed
   request falls through immediately; a successful request resets that model's
@@ -182,6 +187,16 @@ models using assistant-history emulated prefill.
 - `anthropic/claude-opus-4.5` (`Opus 4.5`)
 - `anthropic/claude-opus-4.6` (`Opus 4.6`)
 - Endpoint: `https://openrouter.ai/api/v1/chat/completions`
+- Every OpenRouter request has a stable note-scoped `session_id` for provider
+  sticky routing and an explicit ephemeral prompt-cache breakpoint. In the
+  default line-aware layout, cache the last stable context response before the
+  cursor-line request. In the single-prefill layout, split the active-file
+  assistant content at the start of its changing cursor line and cache the
+  stable prefix. Preserve the model-facing text exactly across that split.
+- This is provider prompt caching, measured through
+  `prompt_tokens_details.cached_tokens`. Do not substitute OpenRouter's
+  whole-response cache: autocomplete should generate a fresh continuation
+  rather than replay an identical prior response.
 - Recent journals, direct linked resources, and surrounding active-file line
   ranges are supplied as user/assistant retrieval pairs. The final user message
   selects the cursor line and the final assistant message contains that line

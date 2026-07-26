@@ -12,6 +12,7 @@ import {
   getCompletionModel,
   nextModelFailureCooldown,
   normalizeModelPriority,
+  parsePromptCacheUsage,
   reconcileCompletionBoundary,
   requestStartDelay,
   reorderModelPriority,
@@ -236,6 +237,7 @@ describe("completion request context", () => {
       "https://openrouter.ai/api/v1/chat/completions",
     );
     expect(request.body.model).toBe("moonshotai/kimi-k2");
+    expect(request.body.session_id).toMatch(/^onward-[0-9a-f]{8}$/u);
     expect(request.body.messages?.at(-1)).toEqual({
       role: "assistant",
       content: "The cat",
@@ -271,6 +273,43 @@ describe("completion request context", () => {
     expect(request.body.messages?.at(0)?.content).toContain(
       "lines surrounding one target line",
     );
+    expect(request.body.messages?.at(-3)?.content).toEqual([
+      {
+        type: "text",
+        text: "After",
+        cache_control: { type: "ephemeral" },
+      },
+    ]);
+  });
+
+  it("keeps the changing cursor line outside the prompt cache breakpoint", () => {
+    const multilineSnapshot = {
+      title: "Ideas",
+      path: "Drafts/Ideas.md",
+      document: "Stable first line\nChanging words",
+      cursor: "Stable first line\nChanging words".length,
+    };
+    const request = buildCompletionRequest(
+      getCompletionModel("anthropic/claude-opus-4.5"),
+      multilineSnapshot,
+      {
+        maxTokens: 48,
+        temperature: 0.1,
+        routeByLatency: true,
+      },
+    );
+
+    expect(request.body.messages?.at(-1)?.content).toEqual([
+      {
+        type: "text",
+        text: "Stable first line\n",
+        cache_control: { type: "ephemeral" },
+      },
+      {
+        type: "text",
+        text: "Changing words",
+      },
+    ]);
   });
 
   it("formats the exact model-facing prompt for inspection", () => {
@@ -330,8 +369,48 @@ describe("prompt-builder completion message behavior", () => {
 
     expect(result.at(-1)?.content).toBe("The cat");
     expect(
-      result.some((message) => message.content.includes(" sat down.")),
+      result.some(
+        (message) =>
+          typeof message.content === "string" &&
+          message.content.includes(" sat down."),
+      ),
     ).toBe(false);
+  });
+});
+
+describe("OpenRouter prompt cache accounting", () => {
+  it("reports the recalled share of input tokens", () => {
+    expect(
+      parsePromptCacheUsage({
+        prompt_tokens: 10_000,
+        prompt_tokens_details: {
+          cached_tokens: 7_500,
+          cache_write_tokens: 2_000,
+        },
+      }),
+    ).toEqual({
+      promptTokens: 10_000,
+      cachedTokens: 7_500,
+      cacheWriteTokens: 2_000,
+      percentage: 75,
+    });
+  });
+
+  it("distinguishes missing cache telemetry from a measured zero", () => {
+    expect(
+      parsePromptCacheUsage({
+        prompt_tokens: 100,
+        prompt_tokens_details: { cached_tokens: 0 },
+      }),
+    ).toEqual({
+      promptTokens: 100,
+      cachedTokens: 0,
+      cacheWriteTokens: 0,
+      percentage: 0,
+    });
+    expect(
+      parsePromptCacheUsage({ prompt_tokens: 100 }),
+    ).toBeNull();
   });
 });
 

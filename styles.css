@@ -75,10 +75,43 @@
 }
 
 .onward-status {
+  align-items: center;
   border-radius: var(--radius-s);
   cursor: pointer;
+  display: inline-flex;
+  gap: 0.35rem;
   padding-inline: 0.25rem;
   white-space: nowrap;
+}
+
+.onward-cache-ring {
+  --onward-cache-percent: 0%;
+  background: conic-gradient(
+    from -90deg,
+    var(--text-muted) 0 var(--onward-cache-percent),
+    var(--background-modifier-border)
+      var(--onward-cache-percent) 100%
+  );
+  border-radius: 50%;
+  display: inline-block;
+  flex: none;
+  height: 0.75rem;
+  -webkit-mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 2px),
+    #000 calc(100% - 1.5px)
+  );
+  mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 2px),
+    #000 calc(100% - 1.5px)
+  );
+  opacity: 0.72;
+  width: 0.75rem;
+}
+
+.onward-cache-ring.is-unavailable {
+  opacity: 0.38;
 }
 
 .onward-status:hover {
