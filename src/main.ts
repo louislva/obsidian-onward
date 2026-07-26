@@ -1680,6 +1680,10 @@ class InlineCompleteSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h2", { text: "Onward" });
+    containerEl.createEl("p", {
+      cls: "onward-settings-version",
+      text: `Version ${this.plugin.manifest.version}`,
+    });
 
     const hasOpenRouterKey = Boolean(
       this.plugin.getApiKey("openrouter-prefill"),

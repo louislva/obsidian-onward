@@ -109,6 +109,9 @@ file as the project handoff for future agents.
 - The bottom-right Obsidian status item uses short model names and reports:
   `waiting`, `generating`, `generated · shown`,
   `generated · not shown`, `missing key`, or `error`.
+- The settings page always shows `Version <manifest version>` directly below
+  its Onward heading. Read it from `plugin.manifest.version` so mobile users can
+  identify the bundle actually loaded on that device.
 - The subtle ring beside the status text visualizes
   `usage.prompt_tokens_details.cached_tokens / usage.prompt_tokens` for the
   latest successful OpenRouter response. Its hover text gives the exact
@@ -251,5 +254,7 @@ models using assistant-history emulated prefill.
 - A live check confirmed native Opus 4.5 prefill.
 - A live check confirmed native Opus 4.6 prefill fails, while the
   assistant-history approximation works.
+- A live mobile check confirmed native vertical scrolling and the
+  near-suggestion swipe gestures work together without opening the side drawer.
 - When debugging “nothing appeared,” use the status state and hover detail
   before changing filters or request semantics.

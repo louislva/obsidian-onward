@@ -1,6 +1,6 @@
 {
   "name": "obsidian-onward",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "description": "Onward: Copilot-style inline prose completion for Obsidian via OpenRouter.",
   "private": true,
   "type": "module",
