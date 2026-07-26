@@ -20,9 +20,12 @@ file as the project handoff for future agents.
 ## Repository and installation
 
 - Repository: `/Users/louisarge/Git/hobby/onward`
+- Public GitHub remote:
+  `https://github.com/louislva/obsidian-onward.git`
 - Installed plugin:
   `/Users/louisarge/Documents/Personal/.obsidian/plugins/onward`
 - Obsidian plugin ID: `onward`.
+- Onward is desktop-only and requires Obsidian 1.5.0 or newer.
 - Install only `main.js`, `manifest.json`, and `styles.css`.
 - Never overwrite or remove the installed `data.json`. It contains the user's
   selected model, timing preferences, and saved API keys.
@@ -55,8 +58,14 @@ file as the project handoff for future agents.
 - `src/completion.test.ts`: pure request/context/sanitization tests.
 - `src/prompt-format.ts`: pure linked-reference discovery, context
   normalization, and synthetic command formatting.
+- `src/prompt-format.test.ts`: pure reference-discovery and prompt-formatting
+  tests.
 - `src/prompt-context.ts`: Obsidian vault resolution, cached web retrieval,
   Readability extraction, and context budgets.
+- `src/prompt-context.test.ts`: vault-link, journal, web-context, caching, and
+  context-budget tests using Obsidian mocks.
+- `src/obsidian-test-mock.ts`: shared lightweight Obsidian API stand-ins used
+  by tests that exercise vault-aware code.
 - `src/training-data.ts`: local training-example schema, folder resolution,
   terminal outcome serialization, and isolated JSON-file writes.
 - `styles.css`: gray inline suggestion, settings styling, and status colors.
