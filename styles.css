@@ -98,10 +98,13 @@
 
 .onward-cache-ring {
   --onward-cache-percent: 0%;
+  --onward-cache-ring-fill: rgba(0, 0, 0, 0.3);
+  --onward-cache-ring-track: rgba(0, 0, 0, 0.1);
   background: conic-gradient(
     from -90deg,
-    var(--text-muted) 0 var(--onward-cache-percent),
-    var(--background-modifier-border)
+    var(--onward-cache-ring-fill)
+      0 var(--onward-cache-percent),
+    var(--onward-cache-ring-track)
       var(--onward-cache-percent) 100%
   );
   border-radius: 50%;
@@ -118,12 +121,12 @@
     transparent calc(100% - 2px),
     #000 calc(100% - 1.5px)
   );
-  opacity: 0.72;
   width: 0.75rem;
 }
 
-.onward-cache-ring.is-unavailable {
-  opacity: 0.38;
+.theme-dark .onward-cache-ring {
+  --onward-cache-ring-fill: rgba(255, 255, 255, 0.3);
+  --onward-cache-ring-track: rgba(255, 255, 255, 0.1);
 }
 
 .onward-status:hover {
