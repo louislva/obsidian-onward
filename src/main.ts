@@ -20,6 +20,7 @@ import {
   MarkdownView,
   Modal,
   Notice,
+  Platform,
   Plugin,
   PluginSettingTab,
   Setting,
@@ -60,6 +61,11 @@ import {
   type PendingTrainingExample,
   type TrainingOutcome,
 } from "./training-data";
+import {
+  completionSwipeAction,
+  pointNearRectangle,
+  shouldYieldToVerticalScroll,
+} from "./touch-gesture";
 
 interface InlineCompleteSettings {
   apiKey: string;
@@ -153,6 +159,12 @@ interface PromptCacheObservation {
   usage: PromptCacheUsage | null;
 }
 
+interface ActiveCompletionSwipe {
+  pointerId: number;
+  startX: number;
+  startY: number;
+}
+
 type CompletionStatus =
   | "idle"
   | "waiting"
@@ -236,11 +248,32 @@ class CompletionController {
   private suggestion: GhostText | null = null;
   private trainingExample: PendingTrainingExample | null = null;
   private dismissedUntilChange = false;
+  private activeSwipe: ActiveCompletionSwipe | null = null;
 
   constructor(
     readonly view: EditorView,
     readonly plugin: InlineCompletePlugin,
   ) {
+    this.view.dom.addEventListener(
+      "pointerdown",
+      this.handlePointerDown,
+      { capture: true, passive: false },
+    );
+    this.view.dom.addEventListener(
+      "pointermove",
+      this.handlePointerMove,
+      { capture: true, passive: false },
+    );
+    this.view.dom.addEventListener(
+      "pointerup",
+      this.handlePointerUp,
+      { capture: true, passive: false },
+    );
+    this.view.dom.addEventListener(
+      "pointercancel",
+      this.handlePointerCancel,
+      { capture: true, passive: false },
+    );
     this.schedule();
   }
 
@@ -272,6 +305,27 @@ class CompletionController {
   }
 
   destroy(): void {
+    this.view.dom.removeEventListener(
+      "pointerdown",
+      this.handlePointerDown,
+      true,
+    );
+    this.view.dom.removeEventListener(
+      "pointermove",
+      this.handlePointerMove,
+      true,
+    );
+    this.view.dom.removeEventListener(
+      "pointerup",
+      this.handlePointerUp,
+      true,
+    );
+    this.view.dom.removeEventListener(
+      "pointercancel",
+      this.handlePointerCancel,
+      true,
+    );
+    this.activeSwipe = null;
     this.cancel(false);
     if (this.deferredGhostClearTimer !== null) {
       window.clearTimeout(this.deferredGhostClearTimer);
@@ -338,6 +392,99 @@ class CompletionController {
     this.dismissedUntilChange = false;
     this.cancel(true);
     this.schedule();
+  }
+
+  private readonly handlePointerDown = (
+    event: PointerEvent,
+  ): void => {
+    if (
+      event.pointerType !== "touch" ||
+      !event.isPrimary ||
+      !this.suggestion ||
+      !this.pointNearSuggestion(event.clientX, event.clientY)
+    ) {
+      return;
+    }
+
+    this.activeSwipe = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+    };
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      this.view.dom.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is best-effort in older mobile webviews.
+    }
+  };
+
+  private readonly handlePointerMove = (
+    event: PointerEvent,
+  ): void => {
+    const swipe = this.activeSwipe;
+    if (!swipe || event.pointerId !== swipe.pointerId) return;
+    if (
+      shouldYieldToVerticalScroll(
+        event.clientX - swipe.startX,
+        event.clientY - swipe.startY,
+      )
+    ) {
+      this.activeSwipe = null;
+      try {
+        this.view.dom.releasePointerCapture(event.pointerId);
+      } catch {
+        // The webview may have taken over the pointer for scrolling.
+      }
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  private readonly handlePointerUp = (
+    event: PointerEvent,
+  ): void => {
+    const swipe = this.activeSwipe;
+    if (!swipe || event.pointerId !== swipe.pointerId) return;
+    this.activeSwipe = null;
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      this.view.dom.releasePointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture may already have been released by the webview.
+    }
+
+    const action = completionSwipeAction(
+      event.clientX - swipe.startX,
+      event.clientY - swipe.startY,
+    );
+    if (action === "accept") {
+      this.accept();
+    } else if (action === "dismiss") {
+      this.dismiss();
+    }
+    this.view.focus();
+  };
+
+  private readonly handlePointerCancel = (
+    event: PointerEvent,
+  ): void => {
+    if (event.pointerId !== this.activeSwipe?.pointerId) return;
+    this.activeSwipe = null;
+  };
+
+  private pointNearSuggestion(x: number, y: number): boolean {
+    const suggestionElements =
+      this.view.dom.querySelectorAll<HTMLElement>(".onward-ghost");
+    for (const element of Array.from(suggestionElements)) {
+      for (const rectangle of Array.from(element.getClientRects())) {
+        if (pointNearRectangle(x, y, rectangle)) return true;
+      }
+    }
+    return false;
   }
 
   private eligible(): boolean {
@@ -523,6 +670,27 @@ class CompletionController {
             } catch {
               throw new Error("Tinker returned an invalid response");
             }
+          } else if (!Platform.isDesktopApp) {
+            const response = await requestUrl({
+              url: request.url,
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://obsidian.md",
+                "X-Title": "Obsidian Onward",
+              },
+              body: JSON.stringify(request.body),
+              throw: false,
+            });
+            responseStatus = response.status;
+            responseOk =
+              response.status >= 200 && response.status < 300;
+            try {
+              payload = response.json as CompletionResponse;
+            } catch {
+              throw new Error("OpenRouter returned an invalid response");
+            }
           } else {
             const response = await fetch(request.url, {
               method: "POST",
@@ -544,6 +712,12 @@ class CompletionController {
             }
           }
 
+          if (
+            controller.signal.aborted ||
+            generation !== this.generation
+          ) {
+            return;
+          }
           if (!responseOk) {
             const service = isTinker ? "Tinker" : "OpenRouter";
             throw new Error(
@@ -759,6 +933,7 @@ class CompletionController {
 
   private cancel(clearGhost: boolean): void {
     this.resolveTrainingExample("soft_rejected");
+    this.activeSwipe = null;
     this.generation += 1;
     if (this.requestTimer !== null) {
       window.clearTimeout(this.requestTimer);
@@ -1003,7 +1178,12 @@ export default class InlineCompletePlugin extends Plugin {
     displayed: string;
     replaceFrom: number;
   }): PendingTrainingExample | null {
-    if (!this.settings.saveTrainingData) return null;
+    if (
+      !this.settings.saveTrainingData ||
+      !Platform.isDesktopApp
+    ) {
+      return null;
+    }
 
     const adapter = this.app.vault.adapter;
     if (!(adapter instanceof FileSystemAdapter)) {
@@ -1731,49 +1911,51 @@ class InlineCompleteSettingTab extends PluginSettingTab {
           }),
       );
 
-    containerEl.createEl("h3", { text: "Training data" });
-    const trainingDataNote = containerEl.createEl("p", {
-      cls: "onward-settings-note",
-    });
-    trainingDataNote.appendText(
-      "This saves your accepted/rejected completions locally on your disk. This never leaves your machine — it’s for ",
-    );
-    trainingDataNote.createEl("em", { text: "you" });
-    trainingDataNote.appendText(
-      " if you want to train a better model.",
-    );
-
-    new Setting(containerEl)
-      .setName("Save training data")
-      .setDesc(
-        "Write one local JSON file for every generated completion, labeled accepted, soft rejected, or hard rejected. Default: off.",
-      )
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.saveTrainingData)
-          .onChange(async (value) => {
-            this.plugin.settings.saveTrainingData = value;
-            await this.plugin.saveSettings();
-          }),
+    if (Platform.isDesktopApp) {
+      containerEl.createEl("h3", { text: "Training data" });
+      const trainingDataNote = containerEl.createEl("p", {
+        cls: "onward-settings-note",
+      });
+      trainingDataNote.appendText(
+        "This saves your accepted/rejected completions locally on your disk. This never leaves your machine — it’s for ",
+      );
+      trainingDataNote.createEl("em", { text: "you" });
+      trainingDataNote.appendText(
+        " if you want to train a better model.",
       );
 
-    const trainingDataPathSetting = new Setting(containerEl)
-      .setName("Training data folder")
-      .setDesc(
-        "Absolute paths and ~/ are supported. Relative paths are resolved from the vault folder.",
-      )
-      .addText((text) =>
-        text
-          .setPlaceholder("~/Documents/onward-training-data")
-          .setValue(this.plugin.settings.trainingDataPath)
-          .onChange(async (value) => {
-            this.plugin.settings.trainingDataPath = value.trim();
-            await this.plugin.saveSettings();
-          }),
+      new Setting(containerEl)
+        .setName("Save training data")
+        .setDesc(
+          "Write one local JSON file for every generated completion, labeled accepted, soft rejected, or hard rejected. Default: off.",
+        )
+        .addToggle((toggle) =>
+          toggle
+            .setValue(this.plugin.settings.saveTrainingData)
+            .onChange(async (value) => {
+              this.plugin.settings.saveTrainingData = value;
+              await this.plugin.saveSettings();
+            }),
+        );
+
+      const trainingDataPathSetting = new Setting(containerEl)
+        .setName("Training data folder")
+        .setDesc(
+          "Absolute paths and ~/ are supported. Relative paths are resolved from the vault folder.",
+        )
+        .addText((text) =>
+          text
+            .setPlaceholder("~/Documents/onward-training-data")
+            .setValue(this.plugin.settings.trainingDataPath)
+            .onChange(async (value) => {
+              this.plugin.settings.trainingDataPath = value.trim();
+              await this.plugin.saveSettings();
+            }),
+        );
+      trainingDataPathSetting.settingEl.addClass(
+        "onward-training-path",
       );
-    trainingDataPathSetting.settingEl.addClass(
-      "onward-training-path",
-    );
+    }
 
     new Setting(containerEl)
       .setName("Pause before showing")

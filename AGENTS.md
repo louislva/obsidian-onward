@@ -25,7 +25,8 @@ file as the project handoff for future agents.
 - Installed plugin:
   `/Users/louisarge/Documents/Personal/.obsidian/plugins/onward`
 - Obsidian plugin ID: `onward`.
-- Onward is desktop-only and requires Obsidian 1.5.0 or newer.
+- Onward supports desktop, iOS, and Android and requires Obsidian 1.5.0 or
+  newer. Keep `manifest.json` at `"isDesktopOnly": false`.
 - Install only `main.js`, `manifest.json`, and `styles.css`.
 - Never overwrite or remove the installed `data.json`. It contains the user's
   selected model, timing preferences, and saved API keys.
@@ -40,8 +41,8 @@ file as the project handoff for future agents.
 2. Make source changes in `src/`.
 3. Add or update focused tests in `src/*.test.ts`.
 4. Run `npm ci` if dependencies are absent.
-5. Run `npm run check`. This performs the TypeScript check, Vitest suite, and
-   production esbuild bundle.
+5. Run `npm run check`. This performs the TypeScript check, Vitest suite,
+   production esbuild bundle, and mobile-load smoke test.
 6. Keep `main.js` committed: it is the generated plugin bundle Obsidian loads.
 7. For a user-visible release, keep the version synchronized in `package.json`,
    `package-lock.json`, `manifest.json`, and `versions.json`.
@@ -67,7 +68,11 @@ file as the project handoff for future agents.
 - `src/obsidian-test-mock.ts`: shared lightweight Obsidian API stand-ins used
   by tests that exercise vault-aware code.
 - `src/training-data.ts`: local training-example schema, folder resolution,
-  terminal outcome serialization, and isolated JSON-file writes.
+  terminal outcome serialization, and isolated desktop JSON-file writes.
+- `src/touch-gesture.ts`: pure mobile swipe hit-testing and horizontal gesture
+  classification.
+- `scripts/mobile-load-smoke.mjs`: evaluates the production bundle with
+  Obsidian mobile stubs and rejects any startup-time Node built-in import.
 - `styles.css`: gray inline suggestion, settings styling, and status colors.
 - `main.js`: generated production bundle; do not hand-edit it.
 
@@ -82,6 +87,11 @@ file as the project handoff for future agents.
   false, preserve the single-`vault.read` prefix serialization exactly.
 - Suggestions appear as gray ghost text at the cursor.
 - `Tab` accepts; `Escape` dismisses until the document changes.
+- On touch devices, a right swipe beginning within 18 pixels of the rendered
+  ghost text accepts and a left swipe hard-dismisses. Require 48 pixels of
+  clearly horizontal travel. Capture and consume qualifying pointer sequences
+  so CodeMirror cannot move the cursor or blur the software keyboard. Taps,
+  short drags, vertical movement, and swipes elsewhere do nothing.
 - Requests are prefetched during the pause but are not revealed before the
   configured pause duration.
 - Any edit or cursor movement aborts the old request and clears stale text.
@@ -120,6 +130,10 @@ file as the project handoff for future agents.
   model metadata, and source-note metadata, but no headers or API keys. Writes
   are asynchronous, serialized, failure-isolated, and local to the configured
   absolute, home-relative, or vault-relative folder.
+- Local training capture is desktop-only. Its settings are hidden on mobile,
+  and its Node `fs`, `os`, and `path` modules must remain lazy `require()` calls
+  behind `Platform.isDesktopApp` plus the `FileSystemAdapter` check. Top-level
+  Node imports prevent the plugin from loading on mobile.
 - The plus button reads `https://openrouter.ai/api/v1/models` and opens a native
   fuzzy-search modal. Arbitrary selected text models are stored directly in
   `modelPriority` and use assistant-history emulated prefill. The curated K2
@@ -187,6 +201,9 @@ models using assistant-history emulated prefill.
 - `anthropic/claude-opus-4.5` (`Opus 4.5`)
 - `anthropic/claude-opus-4.6` (`Opus 4.6`)
 - Endpoint: `https://openrouter.ai/api/v1/chat/completions`
+- Desktop uses abortable browser `fetch`; mobile uses Obsidian `requestUrl`,
+  then discards a response if its editor generation became stale while the
+  non-abortable mobile request was in flight.
 - Every OpenRouter request has a stable note-scoped `session_id` for provider
   sticky routing and an explicit ephemeral prompt-cache breakpoint. In the
   default line-aware layout, cache the last stable context response before the

@@ -1,17 +1,46 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import {
-  isAbsolute,
-  join,
-  normalize,
-  resolve,
-} from "node:path";
-import { randomUUID } from "node:crypto";
 import type {
   CompletionModel,
   CompletionRequest,
   CompletionSnapshot,
 } from "./completion";
+
+interface NodeTrainingModules {
+  mkdir: typeof import("node:fs/promises").mkdir;
+  writeFile: typeof import("node:fs/promises").writeFile;
+  homedir: typeof import("node:os").homedir;
+  isAbsolute: typeof import("node:path").isAbsolute;
+  join: typeof import("node:path").join;
+  normalize: typeof import("node:path").normalize;
+  resolve: typeof import("node:path").resolve;
+}
+
+let nodeTrainingModules: NodeTrainingModules | null = null;
+
+function getNodeTrainingModules(): NodeTrainingModules {
+  if (nodeTrainingModules) return nodeTrainingModules;
+  const fileSystem =
+    require("node:fs/promises") as typeof import("node:fs/promises");
+  const operatingSystem =
+    require("node:os") as typeof import("node:os");
+  const path = require("node:path") as typeof import("node:path");
+  nodeTrainingModules = {
+    mkdir: fileSystem.mkdir,
+    writeFile: fileSystem.writeFile,
+    homedir: operatingSystem.homedir,
+    isAbsolute: path.isAbsolute,
+    join: path.join,
+    normalize: path.normalize,
+    resolve: path.resolve,
+  };
+  return nodeTrainingModules;
+}
+
+function createExampleId(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
 
 export type TrainingOutcome =
   | "accepted"
@@ -58,13 +87,21 @@ export interface TrainingDataRecord {
 export function resolveTrainingDataFolder(
   configuredPath: string,
   vaultBasePath: string,
-  homePath = homedir(),
+  homePath?: string,
 ): string | null {
+  const {
+    homedir,
+    isAbsolute,
+    join,
+    normalize,
+    resolve,
+  } = getNodeTrainingModules();
   const trimmed = configuredPath.trim();
   if (!trimmed) return null;
-  if (trimmed === "~") return normalize(homePath);
+  const resolvedHomePath = homePath ?? homedir();
+  if (trimmed === "~") return normalize(resolvedHomePath);
   if (trimmed.startsWith("~/")) {
-    return normalize(join(homePath, trimmed.slice(2)));
+    return normalize(join(resolvedHomePath, trimmed.slice(2)));
   }
   return isAbsolute(trimmed)
     ? normalize(trimmed)
@@ -85,7 +122,7 @@ export function createPendingTrainingExample(options: {
 }): PendingTrainingExample {
   return {
     folderPath: options.folderPath,
-    exampleId: options.exampleId ?? randomUUID(),
+    exampleId: options.exampleId ?? createExampleId(),
     generatedAt: (options.generatedAt ?? new Date()).toISOString(),
     model: {
       id: options.model.id,
@@ -138,6 +175,7 @@ export async function writeTrainingDataRecord(
   pending: PendingTrainingExample,
   outcome: TrainingOutcome,
 ): Promise<string> {
+  const { join, mkdir, writeFile } = getNodeTrainingModules();
   const record = resolveTrainingDataRecord(pending, outcome);
   const filename = trainingDataFilename(record);
   await mkdir(pending.folderPath, { recursive: true });

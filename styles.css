@@ -6,6 +6,18 @@
   user-select: none;
 }
 
+.is-mobile .onward-ghost {
+  pointer-events: auto;
+  position: relative;
+  touch-action: pan-y;
+}
+
+.is-mobile .onward-ghost::after {
+  content: "";
+  inset: -18px;
+  position: absolute;
+}
+
 .onward-settings-note {
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);

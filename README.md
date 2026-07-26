@@ -14,7 +14,8 @@ https://github.com/user-attachments/assets/3308a2bd-a92b-4de5-99cd-285039372430
 - reports the current model and request state in Obsidian's status bar;
 - shows how much of the latest OpenRouter input was recalled from the prompt
   cache;
-- accepts with **Tab** and dismisses with **Escape**;
+- accepts with **Tab** or a right swipe and dismisses with **Escape** or a
+  left swipe;
 - cancels stale requests as soon as typing resumes.
 
 At the cursor boundary, model-facing prefixes omit trailing ordinary spaces so
@@ -65,6 +66,15 @@ plugin uses the nearest supported equivalent: the document prefix is an
 assistant-authored history message followed by a terse user request to continue
 that exact text. Opus 4.5 and Kimi use a native final-assistant prefill.
 
+## Mobile gestures
+
+Onward supports Obsidian on iOS and Android. Swipe right beginning on or close
+to the gray suggestion to accept it; swipe left to dismiss it as a hard
+rejection. The gesture must begin within a small halo around the suggestion and
+travel clearly horizontally, so ordinary scrolling and gestures elsewhere in
+the note do not count. The editor keeps focus throughout the gesture, leaving
+the software keyboard open.
+
 ## API keys
 
 The plugin first reads `OPENROUTER_API_KEY` from the environment inherited by
@@ -72,7 +82,8 @@ the Obsidian desktop process. If Obsidian was launched from the macOS Dock,
 shell environment variables often are not inherited; in that case, paste the
 key into **Settings → Community plugins → Onward** and rank the models with the
 drag handles or keyboard-friendly up/down controls. The OpenRouter model
-catalogue request contains no note content.
+catalogue request contains no note content. Mobile Obsidian does not inherit
+desktop environment variables, so it uses the key saved in Onward's settings.
 
 API keys are never logged. The first eligible service receives note content
 whenever a completion request starts. If that request fails, later fallback
@@ -82,13 +93,13 @@ plus direct web and vault links unless **Read supporting context** is disabled.
 
 ## Local training data
 
-**Save training data** is off by default. When enabled with a folder path,
-Onward writes one JSON file for every successful model response. Each file
-contains the exact model-facing request body, model and note metadata, raw and
-displayed completion text, and one terminal outcome:
+**Save training data** is a desktop-only option and is off by default. When
+enabled with a folder path, Onward writes one JSON file for every successful
+model response. Each file contains the exact model-facing request body, model
+and note metadata, raw and displayed completion text, and one terminal outcome:
 
-- `accepted` — inserted with **Tab**
-- `hard_rejected` — dismissed with **Escape**
+- `accepted` — inserted with **Tab** or a right swipe
+- `hard_rejected` — dismissed with **Escape** or a left swipe
 - `soft_rejected` — discarded for any other reason, including typing, moving
   the cursor, replacement, filtering, disabling Onward, or closing the editor
 
