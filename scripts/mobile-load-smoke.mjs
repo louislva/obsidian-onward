@@ -12,7 +12,7 @@ const obsidian = {
   MarkdownView: ObsidianStub,
   Modal: ObsidianStub,
   Notice: ObsidianStub,
-  Platform: { isDesktopApp: false },
+  Platform: { isDesktopApp: false, isMobile: true },
   Plugin: ObsidianStub,
   PluginSettingTab: ObsidianStub,
   Setting: ObsidianStub,

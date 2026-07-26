@@ -89,9 +89,12 @@ file as the project handoff for future agents.
 - `Tab` accepts; `Escape` dismisses until the document changes.
 - On touch devices, a right swipe beginning within 18 pixels of the rendered
   ghost text accepts and a left swipe hard-dismisses. Require 48 pixels of
-  clearly horizontal travel. Capture and consume qualifying pointer sequences
-  so CodeMirror cannot move the cursor or blur the software keyboard. Taps,
-  short drags, vertical movement, and swipes elsewhere do nothing.
+  clearly horizontal travel. Observe the touch start without preventing its
+  native default, yield as soon as vertical intent wins, and consume a
+  horizontally locked gesture from a capture listener on `window` so
+  Obsidian's mobile drawer cannot claim it. Do not use pointer capture or
+  prevent the initial touch: either breaks native scrolling. Taps, short
+  drags, vertical movement, and swipes elsewhere do nothing.
 - Requests are prefetched during the pause but are not revealed before the
   configured pause duration.
 - Any edit or cursor movement aborts the old request and clears stale text.

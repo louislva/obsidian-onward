@@ -1,4 +1,8 @@
 export type CompletionSwipeAction = "accept" | "dismiss" | null;
+export type CompletionTouchIntent =
+  | "pending"
+  | "horizontal"
+  | "vertical";
 
 export interface RectangleBounds {
   left: number;
@@ -10,7 +14,7 @@ export interface RectangleBounds {
 export const COMPLETION_SWIPE_HIT_PADDING_PX = 18;
 export const COMPLETION_SWIPE_MIN_DISTANCE_PX = 48;
 const COMPLETION_SWIPE_HORIZONTAL_DOMINANCE = 1.25;
-const COMPLETION_SCROLL_INTENT_DISTANCE_PX = 12;
+export const COMPLETION_TOUCH_INTENT_DISTANCE_PX = 12;
 
 export function pointNearRectangle(
   x: number,
@@ -43,15 +47,25 @@ export function completionSwipeAction(
   return deltaX > 0 ? "accept" : "dismiss";
 }
 
-export function shouldYieldToVerticalScroll(
+export function completionTouchIntent(
   deltaX: number,
   deltaY: number,
-): boolean {
+  intentDistance = COMPLETION_TOUCH_INTENT_DISTANCE_PX,
+): CompletionTouchIntent {
   const horizontalDistance = Math.abs(deltaX);
   const verticalDistance = Math.abs(deltaY);
-  return (
-    verticalDistance >= COMPLETION_SCROLL_INTENT_DISTANCE_PX &&
-    verticalDistance >
-      horizontalDistance * COMPLETION_SWIPE_HORIZONTAL_DOMINANCE
-  );
+  if (
+    verticalDistance >= intentDistance &&
+    verticalDistance > horizontalDistance
+  ) {
+    return "vertical";
+  }
+  if (
+    horizontalDistance >= intentDistance &&
+    horizontalDistance >
+      verticalDistance * COMPLETION_SWIPE_HORIZONTAL_DOMINANCE
+  ) {
+    return "horizontal";
+  }
+  return "pending";
 }

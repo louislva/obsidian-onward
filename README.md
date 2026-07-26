@@ -72,7 +72,9 @@ Onward supports Obsidian on iOS and Android. Swipe right beginning on or close
 to the gray suggestion to accept it; swipe left to dismiss it as a hard
 rejection. The gesture must begin within a small halo around the suggestion and
 travel clearly horizontally, so ordinary scrolling and gestures elsewhere in
-the note do not count. The editor keeps focus throughout the gesture, leaving
+the note do not count. Vertical movement yields immediately to native
+scrolling, while a qualifying horizontal gesture is kept away from Obsidian's
+side drawers. The editor keeps focus after acceptance or dismissal, leaving
 the software keyboard open.
 
 ## API keys

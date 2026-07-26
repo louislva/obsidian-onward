@@ -63,8 +63,8 @@ import {
 } from "./training-data";
 import {
   completionSwipeAction,
+  completionTouchIntent,
   pointNearRectangle,
-  shouldYieldToVerticalScroll,
 } from "./touch-gesture";
 
 interface InlineCompleteSettings {
@@ -160,9 +160,10 @@ interface PromptCacheObservation {
 }
 
 interface ActiveCompletionSwipe {
-  pointerId: number;
+  touchId: number;
   startX: number;
   startY: number;
+  horizontalLocked: boolean;
 }
 
 type CompletionStatus =
@@ -254,26 +255,28 @@ class CompletionController {
     readonly view: EditorView,
     readonly plugin: InlineCompletePlugin,
   ) {
-    this.view.dom.addEventListener(
-      "pointerdown",
-      this.handlePointerDown,
-      { capture: true, passive: false },
-    );
-    this.view.dom.addEventListener(
-      "pointermove",
-      this.handlePointerMove,
-      { capture: true, passive: false },
-    );
-    this.view.dom.addEventListener(
-      "pointerup",
-      this.handlePointerUp,
-      { capture: true, passive: false },
-    );
-    this.view.dom.addEventListener(
-      "pointercancel",
-      this.handlePointerCancel,
-      { capture: true, passive: false },
-    );
+    if (Platform.isMobile) {
+      window.addEventListener(
+        "touchstart",
+        this.handleTouchStart,
+        { capture: true, passive: false },
+      );
+      window.addEventListener(
+        "touchmove",
+        this.handleTouchMove,
+        { capture: true, passive: false },
+      );
+      window.addEventListener(
+        "touchend",
+        this.handleTouchEnd,
+        { capture: true, passive: false },
+      );
+      window.addEventListener(
+        "touchcancel",
+        this.handleTouchCancel,
+        { capture: true, passive: false },
+      );
+    }
     this.schedule();
   }
 
@@ -305,26 +308,28 @@ class CompletionController {
   }
 
   destroy(): void {
-    this.view.dom.removeEventListener(
-      "pointerdown",
-      this.handlePointerDown,
-      true,
-    );
-    this.view.dom.removeEventListener(
-      "pointermove",
-      this.handlePointerMove,
-      true,
-    );
-    this.view.dom.removeEventListener(
-      "pointerup",
-      this.handlePointerUp,
-      true,
-    );
-    this.view.dom.removeEventListener(
-      "pointercancel",
-      this.handlePointerCancel,
-      true,
-    );
+    if (Platform.isMobile) {
+      window.removeEventListener(
+        "touchstart",
+        this.handleTouchStart,
+        true,
+      );
+      window.removeEventListener(
+        "touchmove",
+        this.handleTouchMove,
+        true,
+      );
+      window.removeEventListener(
+        "touchend",
+        this.handleTouchEnd,
+        true,
+      );
+      window.removeEventListener(
+        "touchcancel",
+        this.handleTouchCancel,
+        true,
+      );
+    }
     this.activeSwipe = null;
     this.cancel(false);
     if (this.deferredGhostClearTimer !== null) {
@@ -394,87 +399,105 @@ class CompletionController {
     this.schedule();
   }
 
-  private readonly handlePointerDown = (
-    event: PointerEvent,
-  ): void => {
+  private readonly handleTouchStart = (event: TouchEvent): void => {
+    const touch = event.changedTouches.item(0);
     if (
-      event.pointerType !== "touch" ||
-      !event.isPrimary ||
+      event.touches.length !== 1 ||
+      !touch ||
       !this.suggestion ||
-      !this.pointNearSuggestion(event.clientX, event.clientY)
+      !this.eventBelongsToEditor(event) ||
+      !this.pointNearSuggestion(touch.clientX, touch.clientY)
     ) {
       return;
     }
 
     this.activeSwipe = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
+      touchId: touch.identifier,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      horizontalLocked: false,
     };
-    event.preventDefault();
-    event.stopPropagation();
-    try {
-      this.view.dom.setPointerCapture(event.pointerId);
-    } catch {
-      // Pointer capture is best-effort in older mobile webviews.
-    }
+    // Keep native default handling alive so a vertical gesture can scroll.
+    // Stop Obsidian's outer gesture listeners from claiming this candidate.
+    event.stopImmediatePropagation();
   };
 
-  private readonly handlePointerMove = (
-    event: PointerEvent,
-  ): void => {
+  private readonly handleTouchMove = (event: TouchEvent): void => {
     const swipe = this.activeSwipe;
-    if (!swipe || event.pointerId !== swipe.pointerId) return;
-    if (
-      shouldYieldToVerticalScroll(
-        event.clientX - swipe.startX,
-        event.clientY - swipe.startY,
-      )
-    ) {
+    if (!swipe) return;
+    const touch = this.findTouch(event.touches, swipe.touchId);
+    if (!touch) return;
+
+    const intent = completionTouchIntent(
+      touch.clientX - swipe.startX,
+      touch.clientY - swipe.startY,
+    );
+    if (!swipe.horizontalLocked && intent === "vertical") {
       this.activeSwipe = null;
-      try {
-        this.view.dom.releasePointerCapture(event.pointerId);
-      } catch {
-        // The webview may have taken over the pointer for scrolling.
-      }
       return;
     }
-    event.preventDefault();
-    event.stopPropagation();
+    if (intent === "horizontal") swipe.horizontalLocked = true;
+
+    event.stopImmediatePropagation();
+    if (swipe.horizontalLocked && event.cancelable) {
+      event.preventDefault();
+    }
   };
 
-  private readonly handlePointerUp = (
-    event: PointerEvent,
-  ): void => {
+  private readonly handleTouchEnd = (event: TouchEvent): void => {
     const swipe = this.activeSwipe;
-    if (!swipe || event.pointerId !== swipe.pointerId) return;
+    if (!swipe) return;
+    const touch = this.findTouch(
+      event.changedTouches,
+      swipe.touchId,
+    );
+    if (!touch) return;
     this.activeSwipe = null;
-    event.preventDefault();
-    event.stopPropagation();
-    try {
-      this.view.dom.releasePointerCapture(event.pointerId);
-    } catch {
-      // Pointer capture may already have been released by the webview.
-    }
 
     const action = completionSwipeAction(
-      event.clientX - swipe.startX,
-      event.clientY - swipe.startY,
+      touch.clientX - swipe.startX,
+      touch.clientY - swipe.startY,
     );
+    if (!swipe.horizontalLocked || !action) return;
+
+    event.stopImmediatePropagation();
+    if (event.cancelable) event.preventDefault();
     if (action === "accept") {
       this.accept();
-    } else if (action === "dismiss") {
+    } else {
       this.dismiss();
     }
     this.view.focus();
   };
 
-  private readonly handlePointerCancel = (
-    event: PointerEvent,
-  ): void => {
-    if (event.pointerId !== this.activeSwipe?.pointerId) return;
+  private readonly handleTouchCancel = (event: TouchEvent): void => {
+    const swipe = this.activeSwipe;
+    if (
+      !swipe ||
+      !this.findTouch(event.changedTouches, swipe.touchId)
+    ) {
+      return;
+    }
     this.activeSwipe = null;
   };
+
+  private eventBelongsToEditor(event: Event): boolean {
+    return (
+      event.target instanceof Node &&
+      this.view.dom.contains(event.target)
+    );
+  }
+
+  private findTouch(
+    touches: TouchList,
+    identifier: number,
+  ): Touch | null {
+    for (let index = 0; index < touches.length; index += 1) {
+      const touch = touches.item(index);
+      if (touch?.identifier === identifier) return touch;
+    }
+    return null;
+  }
 
   private pointNearSuggestion(x: number, y: number): boolean {
     const suggestionElements =

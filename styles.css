@@ -15,7 +15,9 @@
 .is-mobile .onward-ghost::after {
   content: "";
   inset: -18px;
+  pointer-events: auto;
   position: absolute;
+  touch-action: pan-y;
 }
 
 .onward-settings-note {

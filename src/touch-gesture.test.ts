@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   completionSwipeAction,
+  completionTouchIntent,
   pointNearRectangle,
-  shouldYieldToVerticalScroll,
 } from "./touch-gesture";
 
 describe("completion touch gestures", () => {
@@ -16,9 +16,15 @@ describe("completion touch gestures", () => {
     expect(completionSwipeAction(40, 2)).toBeNull();
     expect(completionSwipeAction(55, 50)).toBeNull();
     expect(completionSwipeAction(20, 80)).toBeNull();
-    expect(shouldYieldToVerticalScroll(4, 20)).toBe(true);
-    expect(shouldYieldToVerticalScroll(20, 4)).toBe(false);
-    expect(shouldYieldToVerticalScroll(2, 8)).toBe(false);
+  });
+
+  it("locks direction early and biases ambiguous movement toward scrolling", () => {
+    expect(completionTouchIntent(4, 20)).toBe("vertical");
+    expect(completionTouchIntent(20, 4)).toBe("horizontal");
+    expect(completionTouchIntent(2, 8)).toBe("pending");
+    expect(completionTouchIntent(12, 12)).toBe("pending");
+    expect(completionTouchIntent(13, 14)).toBe("vertical");
+    expect(completionTouchIntent(14, 13)).toBe("pending");
   });
 
   it("limits gesture starts to the padded suggestion area", () => {
