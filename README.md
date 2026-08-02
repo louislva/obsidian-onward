@@ -115,9 +115,11 @@ The bottom-right status item uses the short name of the model currently being
 tried or whose suggestion is visible, such as `K2` or `Opus 4.5`.
 It reports `waiting`, `generating`, `generated · shown`, or `generated · not
 shown`, plus `missing key` and `error` when a request cannot run. Hover it to
-see fallback and cooldown details. A subtle ring beside it shows the share of
-the latest successful OpenRouter request's input tokens recalled from the
-provider prompt cache; hover for the exact percentage and token counts. Click
+see fallback and cooldown details. OpenRouter balance failures appear quietly
+as `out of funds` here without producing repeated pop-up notices. A subtle
+ring beside it shows the share of the latest successful OpenRouter request's
+input tokens recalled from the provider prompt cache; hover for the exact
+percentage and token counts. Click
 the status item to inspect the exact last model-facing prompt as a complete
 message array in formatted JSON.
 

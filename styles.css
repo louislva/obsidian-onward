@@ -159,6 +159,10 @@
   color: var(--text-muted);
 }
 
+.onward-status[data-state="out-of-funds"] {
+  color: var(--text-warning);
+}
+
 .onward-status[data-state="missing-key"],
 .onward-status[data-state="error"] {
   color: var(--text-error);

@@ -37,6 +37,7 @@ import {
   DEFAULT_MODEL_PRIORITY,
   formatCompletionPrompt,
   getCompletionModel,
+  isOpenRouterFundingError,
   nextModelFailureCooldown,
   normalizeModelPriority,
   parsePromptCacheUsage,
@@ -141,12 +142,14 @@ interface OpenRouterModelsResponse {
 
 interface ModelCircuitState extends ModelFailureCooldown {
   lastError: string;
+  fundingError: boolean;
 }
 
 interface FailedModelAttempt {
   model: CompletionModel;
   message: string;
   cooldownMs: number;
+  fundingError: boolean;
 }
 
 interface PromptPreview extends FormattedCompletionPrompt {
@@ -173,6 +176,7 @@ type CompletionStatus =
   | "hidden"
   | "shown"
   | "missing-key"
+  | "out-of-funds"
   | "error";
 
 const STATUS_LABELS: Record<CompletionStatus, string> = {
@@ -182,8 +186,19 @@ const STATUS_LABELS: Record<CompletionStatus, string> = {
   hidden: "generated · not shown",
   shown: "generated · shown",
   "missing-key": "missing key",
+  "out-of-funds": "out of funds",
   error: "error",
 };
+
+class ProviderRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ProviderRequestError";
+  }
+}
 
 const setGhostText = StateEffect.define<GhostText | null>();
 
@@ -743,10 +758,11 @@ class CompletionController {
           }
           if (!responseOk) {
             const service = isTinker ? "Tinker" : "OpenRouter";
-            throw new Error(
+            throw new ProviderRequestError(
               payload.error?.message ??
                 payload.detail ??
                 `${service} returned ${responseStatus}`,
+              responseStatus,
             );
           }
 
@@ -1546,6 +1562,10 @@ export default class InlineCompletePlugin extends Plugin {
     error: unknown,
   ): FailedModelAttempt {
     const message = error instanceof Error ? error.message : String(error);
+    const fundingError =
+      model.backend === "openrouter-prefill" &&
+      ((error instanceof ProviderRequestError && error.status === 402) ||
+        isOpenRouterFundingError(message));
     const cooldown = nextModelFailureCooldown(
       this.modelCircuits.get(model.id),
       attemptStartedAt,
@@ -1554,8 +1574,14 @@ export default class InlineCompletePlugin extends Plugin {
     this.modelCircuits.set(model.id, {
       ...cooldown,
       lastError: message,
+      fundingError,
     });
-    return { model, message, cooldownMs: cooldown.cooldownMs };
+    return {
+      model,
+      message,
+      cooldownMs: cooldown.cooldownMs,
+      fundingError,
+    };
   }
 
   notifyNoEligibleModels(): void {
@@ -1584,6 +1610,14 @@ export default class InlineCompletePlugin extends Plugin {
       );
     } else {
       const now = Date.now();
+      const fundingOnly = keyedModels.every((model) => {
+        const state = this.modelCircuits.get(model.id);
+        return (
+          state !== undefined &&
+          state.cooldownUntil > now &&
+          state.fundingError
+        );
+      });
       const cooling = keyedModels
         .map((model) => {
           const state = this.modelCircuits.get(model.id);
@@ -1596,10 +1630,11 @@ export default class InlineCompletePlugin extends Plugin {
         })
         .filter(Boolean);
       this.setStatus(
-        "error",
+        fundingOnly ? "out-of-funds" : "error",
         `All keyed models are cooling down: ${cooling.join("; ")}`,
         keyedModels[0],
       );
+      if (fundingOnly) return;
     }
 
     if (this.missingKeyNotified) return;
@@ -1627,12 +1662,22 @@ export default class InlineCompletePlugin extends Plugin {
     this.notifyRequestError(
       new Error(`All model fallbacks failed. ${summary}`),
       failures.at(-1)?.model,
+      failures.every((failure) => failure.fundingError),
     );
   }
 
-  notifyRequestError(error: unknown, model?: CompletionModel): void {
+  notifyRequestError(
+    error: unknown,
+    model?: CompletionModel,
+    fundingOnly = false,
+  ): void {
     const message = error instanceof Error ? error.message : String(error);
-    this.setStatus("error", message, model);
+    this.setStatus(
+      fundingOnly ? "out-of-funds" : "error",
+      message,
+      model,
+    );
+    if (fundingOnly) return;
     const now = Date.now();
     if (message === this.lastError && now - this.lastErrorAt < 30_000) return;
 

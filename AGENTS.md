@@ -108,7 +108,12 @@ file as the project handoff for future agents.
   `ghostTextField`; focus-only cleanup is deliberately deferred.
 - The bottom-right Obsidian status item uses short model names and reports:
   `waiting`, `generating`, `generated · shown`,
-  `generated · not shown`, `missing key`, or `error`.
+  `generated · not shown`, `missing key`, `out of funds`, or `error`.
+- OpenRouter HTTP 402 responses and recognizable insufficient-credit messages
+  are quiet errors. Show `out of funds` in the corner status and retain the
+  full provider message in its hover detail, but never create an Obsidian
+  `Notice` for the failed fallback pass or the resulting all-model cooldown.
+  Unrelated request failures retain their rate-limited pop-up notices.
 - The settings page always shows `Version <manifest version>` directly below
   its Onward heading. Read it from `plugin.manifest.version` so mobile users can
   identify the bundle actually loaded on that device.

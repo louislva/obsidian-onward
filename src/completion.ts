@@ -61,6 +61,18 @@ export const DEFAULT_MODEL_PRIORITY = [
 ];
 export const DEFAULT_MODEL_ID = DEFAULT_MODEL_PRIORITY[0];
 
+export function isOpenRouterFundingError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return [
+    /\binsufficient (?:credits?|funds)\b/u,
+    /\bout of funds\b/u,
+    /\bnot enough credits?\b/u,
+    /\brequires? more credits?\b/u,
+    /\bcan only afford\b/u,
+    /openrouter\.ai\/settings\/credits/u,
+  ].some((pattern) => pattern.test(normalized));
+}
+
 function genericOpenRouterShortName(id: string): string {
   const slug = id.split("/").at(-1) ?? id;
   const readable = slug.replace(/:free$/u, " free");

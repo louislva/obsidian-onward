@@ -10,6 +10,7 @@ import {
   FAILURE_COOLDOWN_MAX_MS,
   formatCompletionPrompt,
   getCompletionModel,
+  isOpenRouterFundingError,
   nextModelFailureCooldown,
   normalizeModelPriority,
   parsePromptCacheUsage,
@@ -411,6 +412,35 @@ describe("OpenRouter prompt cache accounting", () => {
     expect(
       parsePromptCacheUsage({ prompt_tokens: 100 }),
     ).toBeNull();
+  });
+});
+
+describe("OpenRouter funding errors", () => {
+  it("recognizes the credit messages OpenRouter returns", () => {
+    expect(
+      isOpenRouterFundingError(
+        "Insufficient credits. Add more using https://openrouter.ai/settings/credits",
+      ),
+    ).toBe(true);
+    expect(isOpenRouterFundingError("Provider is out of funds")).toBe(
+      true,
+    );
+    expect(
+      isOpenRouterFundingError(
+        "This request requires more credits than are available",
+      ),
+    ).toBe(true);
+    expect(
+      isOpenRouterFundingError(
+        "You can only afford 120 tokens with the available balance",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not hide unrelated provider failures", () => {
+    expect(isOpenRouterFundingError("Rate limit exceeded")).toBe(false);
+    expect(isOpenRouterFundingError("Provider unavailable")).toBe(false);
+    expect(isOpenRouterFundingError("Invalid API key")).toBe(false);
   });
 });
 
