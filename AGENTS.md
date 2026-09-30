@@ -43,10 +43,13 @@ file as the project handoff for future agents.
   release with `main.js`, `manifest.json`, and `styles.css` attached. BRAT
   installs and updates from these releases, and the landing page's manual
   download links point at `releases/latest/download/<file>`.
-- `site/` is the static landing page for `onward.louisarge.com`: one
-  `index.html` with inline CSS and JS, plus `demo.mp4` and `demo.jpg`. No build
-  step; deploy the `site/` folder as-is (e.g. a Vercel project with root
-  directory `site`). Keep its claims in sync with the plugin's behavior.
+- `site/` is the landing page for `onward.louisarge.com`: a plain Vite +
+  TypeScript project (same setup as sol) with its own `package.json`, separate
+  from the plugin's. `index.html`, `src/main.ts` (the self-typing hero demo),
+  `src/style.css`, and `public/demo.mp4` / `public/demo.jpg`. Run `npm install`
+  then `npm run dev` or `npm run build` inside `site/`. Deploy on Vercel with
+  root directory `site` (Vite is auto-detected; output `dist`). Keep its claims
+  in sync with the plugin's behavior.
 
 ## Development workflow
 
