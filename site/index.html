@@ -1,0 +1,762 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Onward · Autocomplete for your writing in Obsidian</title>
+    <meta
+      name="description"
+      content="Onward is AI autocomplete for Obsidian. Pause mid-sentence and it suggests how the thought might continue, in your own voice. Tab to keep it."
+    />
+    <meta property="og:title" content="Onward · Momentum for your writing" />
+    <meta
+      property="og:description"
+      content="AI autocomplete for Obsidian. Pause mid-sentence and it suggests the rest, in your own voice."
+    />
+    <meta property="og:image" content="https://onward.louisarge.com/demo.jpg" />
+    <meta property="og:url" content="https://onward.louisarge.com" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23f6efd9'/%3E%3Crect x='9' y='7' width='2.4' height='18' rx='1.2' fill='%2324211c'/%3E%3Crect x='14' y='14.5' width='10' height='3' rx='1.5' fill='%23b3aa96'/%3E%3C/svg%3E"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --paper: #f6efd9;
+        --paper-deep: #efe6cc;
+        --sheet: #fbf6e6;
+        --ink: #24211c;
+        --ink-soft: #5d574b;
+        --ghost: #aaa290;
+        --rule: #e3d9bd;
+        --accent: #7a5c2e;
+        --sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+        --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 17px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: inherit;
+      }
+      .wrap {
+        max-width: 880px;
+        margin: 0 auto;
+        padding: 0 20px;
+      }
+
+      /* Top bar */
+      .top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 22px 0;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 600;
+        text-decoration: none;
+        letter-spacing: -0.01em;
+      }
+      .brand svg {
+        width: 26px;
+        height: 26px;
+      }
+      .top nav {
+        display: flex;
+        gap: 22px;
+        font-family: var(--mono);
+        font-size: 14px;
+      }
+      .top nav a {
+        color: var(--ink-soft);
+        text-decoration: none;
+        padding: 8px 0;
+      }
+      .top nav a:hover {
+        color: var(--ink);
+      }
+
+      /* Hero */
+      .hero {
+        padding: 56px 0 28px;
+        text-align: center;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(40px, 8vw, 68px);
+        line-height: 1.05;
+        letter-spacing: -0.035em;
+        font-weight: 700;
+      }
+      .lede {
+        max-width: 560px;
+        margin: 22px auto 0;
+        font-size: 19px;
+        color: var(--ink-soft);
+      }
+      .ctas {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 12px;
+        margin-top: 32px;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 46px;
+        padding: 0 22px;
+        border-radius: 999px;
+        font-weight: 500;
+        font-size: 16px;
+        text-decoration: none;
+        transition:
+          background-color 0.15s,
+          transform 0.15s;
+      }
+      .btn-primary {
+        background: var(--ink);
+        color: var(--paper);
+      }
+      .btn-primary:hover {
+        background: #3a352d;
+      }
+      .btn-quiet {
+        border: 1px solid var(--rule);
+        background: var(--sheet);
+      }
+      .btn-quiet:hover {
+        background: #fffaec;
+      }
+      .fine {
+        margin-top: 14px;
+        font-size: 14px;
+        color: var(--ink-soft);
+      }
+
+      /* The editor demo: a note being written, with Onward's ghost text */
+      .editor {
+        margin: 48px auto 0;
+        max-width: 760px;
+        background: var(--sheet);
+        border: 1px solid var(--rule);
+        border-radius: 14px;
+        box-shadow:
+          0 1px 0 rgba(255, 255, 255, 0.7) inset,
+          0 24px 60px -30px rgba(80, 60, 20, 0.35);
+        overflow: hidden;
+        text-align: left;
+      }
+      .editor-bar {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--rule);
+        background: var(--paper-deep);
+      }
+      .editor-bar i {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background: #d9cfb3;
+      }
+      .editor-bar span {
+        margin-left: 10px;
+        font-family: var(--mono);
+        font-size: 13px;
+        color: var(--ink-soft);
+      }
+      .editor-body {
+        padding: 28px 30px 20px;
+        min-height: 300px;
+        font-family: var(--mono);
+        font-size: 16px;
+        line-height: 1.75;
+      }
+      .editor-body h3 {
+        margin: 0 0 14px;
+        font-family: var(--mono);
+        font-size: 20px;
+        font-weight: 500;
+      }
+      .editor-body h3 b {
+        color: var(--ghost);
+        font-weight: 500;
+      }
+      .editor-body p {
+        margin: 0 0 16px;
+      }
+      .caret {
+        display: inline-block;
+        width: 2px;
+        height: 1.15em;
+        margin: 0 1px -0.2em;
+        background: var(--ink);
+      }
+      .caret.off {
+        visibility: hidden;
+      }
+      .ghost {
+        color: var(--ghost);
+      }
+      .editor-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 16px;
+        border-top: 1px solid var(--rule);
+        font-family: var(--mono);
+        font-size: 12.5px;
+        color: var(--ink-soft);
+      }
+      .status {
+        white-space: nowrap;
+      }
+      .narrow {
+        display: none;
+      }
+      .keyhint {
+        opacity: 0;
+        transition: opacity 0.25s;
+      }
+      .keyhint.on {
+        opacity: 1;
+      }
+      kbd {
+        display: inline-block;
+        padding: 1px 7px;
+        border: 1px solid var(--rule);
+        border-bottom-width: 2px;
+        border-radius: 5px;
+        background: #fffaec;
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--ink);
+      }
+
+      /* Sections */
+      section {
+        padding: 72px 0 0;
+      }
+      h2 {
+        margin: 0 0 8px;
+        font-size: clamp(28px, 5vw, 36px);
+        line-height: 1.15;
+        letter-spacing: -0.025em;
+      }
+      .section-lede {
+        margin: 0 0 32px;
+        color: var(--ink-soft);
+        max-width: 600px;
+      }
+      .points {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+      @media (min-width: 700px) {
+        .points {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      .point {
+        padding: 22px 24px;
+        background: var(--sheet);
+        border: 1px solid var(--rule);
+        border-radius: 12px;
+      }
+      .point h3 {
+        margin: 0 0 6px;
+        font-size: 18px;
+        letter-spacing: -0.01em;
+      }
+      .point p {
+        margin: 0;
+        color: var(--ink-soft);
+        font-size: 16px;
+      }
+
+      video {
+        display: block;
+        width: 100%;
+        height: auto;
+        border-radius: 12px;
+        border: 1px solid var(--rule);
+        background: var(--sheet);
+      }
+
+      /* Install */
+      .steps {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 14px;
+        counter-reset: step;
+      }
+      .steps li {
+        position: relative;
+        padding: 22px 24px 22px 70px;
+        background: var(--sheet);
+        border: 1px solid var(--rule);
+        border-radius: 12px;
+        counter-increment: step;
+      }
+      .steps li::before {
+        content: counter(step);
+        position: absolute;
+        left: 22px;
+        top: 21px;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: var(--ink);
+        color: var(--paper);
+        font-weight: 600;
+        font-size: 15px;
+        display: grid;
+        place-items: center;
+      }
+      .steps h3 {
+        margin: 0 0 4px;
+        font-size: 18px;
+      }
+      .steps p {
+        margin: 0 0 14px;
+        color: var(--ink-soft);
+        font-size: 16px;
+      }
+      .steps .btn {
+        min-height: 40px;
+        padding: 0 18px;
+        font-size: 15px;
+      }
+      code {
+        font-family: var(--mono);
+        font-size: 0.9em;
+        background: var(--paper-deep);
+        padding: 1px 6px;
+        border-radius: 5px;
+      }
+      details {
+        margin-top: 16px;
+        padding: 16px 22px;
+        border: 1px dashed var(--rule);
+        border-radius: 12px;
+        color: var(--ink-soft);
+        font-size: 16px;
+      }
+      summary {
+        cursor: pointer;
+        color: var(--ink);
+        font-weight: 500;
+      }
+      details ol {
+        margin: 12px 0 0;
+        padding-left: 20px;
+      }
+      details li {
+        margin: 6px 0;
+      }
+
+      .privacy p {
+        max-width: 640px;
+        color: var(--ink-soft);
+      }
+
+      footer {
+        margin-top: 80px;
+        padding: 28px 0 44px;
+        border-top: 1px solid var(--rule);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 24px;
+        justify-content: space-between;
+        font-size: 14px;
+        color: var(--ink-soft);
+      }
+      footer a {
+        text-decoration-color: var(--rule);
+        text-underline-offset: 3px;
+      }
+
+      @media (max-width: 560px) {
+        body {
+          font-size: 16px;
+        }
+        .hero {
+          padding-top: 36px;
+        }
+        .lede {
+          font-size: 17px;
+        }
+        .editor-body {
+          padding: 22px 18px 14px;
+          font-size: 14.5px;
+          min-height: 330px;
+        }
+        .steps li {
+          padding: 20px 18px 20px 60px;
+        }
+        .steps li::before {
+          left: 16px;
+        }
+        .top nav {
+          gap: 16px;
+        }
+        .wide {
+          display: none;
+        }
+        .narrow {
+          display: inline;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <a class="brand" href="/">
+          <svg viewBox="0 0 32 32" aria-hidden="true">
+            <rect width="32" height="32" rx="7" fill="#24211c" />
+            <rect x="9" y="7" width="2.4" height="18" rx="1.2" fill="#f6efd9" />
+            <rect x="14" y="14.5" width="10" height="3" rx="1.5" fill="#8f8674" />
+          </svg>
+          Onward
+        </a>
+        <nav>
+          <a href="#install">Install</a>
+          <a href="https://github.com/louislva/obsidian-onward">GitHub</a>
+        </nav>
+      </header>
+
+      <main>
+        <div class="hero">
+          <h1>Momentum for<br />your writing.</h1>
+          <p class="lede">
+            Onward is autocomplete for Obsidian. When you stall mid-thought, it suggests where the
+            sentence could go next, in your own voice. Press Tab to keep it, or just keep typing.
+          </p>
+          <div class="ctas">
+            <a class="btn btn-primary" href="#install">Install Onward</a>
+            <a class="btn btn-quiet" href="#demo">Watch it work</a>
+          </div>
+          <p class="fine">Open source · Desktop, iPhone, iPad and Android</p>
+
+          <div class="editor" aria-label="An example note with an Onward suggestion">
+            <div class="editor-bar" aria-hidden="true">
+              <i></i><i></i><i></i><span>Morning pages.md</span>
+            </div>
+            <div class="editor-body" id="note">
+              <h3><b>##</b> Why I walk</h3>
+              <p>
+                For a while I told myself the walk was for exercise. It isn't, really. It's the only
+                part of the day where nothing is asking anything of me.
+              </p>
+              <p id="line"></p>
+            </div>
+            <div class="editor-foot">
+              <span class="keyhint" id="hint"
+                ><span class="wide"><kbd>Tab</kbd> to accept · <kbd>Esc</kbd> to dismiss</span
+                ><span class="narrow">Swipe right to accept</span></span
+              >
+              <span class="status"><span class="wide">Opus 4.6 · </span><span id="status">waiting</span></span>
+            </div>
+          </div>
+        </div>
+
+        <section>
+          <h2>It helps without taking over.</h2>
+          <p class="section-lede">
+            Most AI writing tools want to write for you. Onward is built for the moment you already
+            know what you mean but haven't found the words yet.
+          </p>
+          <div class="points">
+            <div class="point">
+              <h3>It waits for you</h3>
+              <p>
+                Nothing appears while you're typing. Pause for two seconds and a suggestion fades in,
+                already fetched in the background, so it's there the moment you look up.
+              </p>
+            </div>
+            <div class="point">
+              <h3>It sounds like you</h3>
+              <p>
+                Onward reads the note you're in, today's and yesterday's journal, and any notes or web
+                pages the note links to. Suggestions pick up your phrasing and what you've actually
+                been thinking about.
+              </p>
+            </div>
+            <div class="point">
+              <h3>It's easy to ignore</h3>
+              <p>
+                <kbd>Tab</kbd> accepts, <kbd>Esc</kbd> dismisses, and typing anything makes it
+                disappear. On a phone, swipe right on the suggestion to accept it, left to dismiss.
+              </p>
+            </div>
+            <div class="point">
+              <h3>You choose the model</h3>
+              <p>
+                It runs on Claude Opus by default, through OpenRouter, and any other model is one search
+                away. Rank a few: if one fails, the next takes over without you noticing.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="demo">
+          <h2>In a real note</h2>
+          <p class="section-lede">Twenty seconds of writing with Onward on.</p>
+          <video
+            src="demo.mp4#t=0.001"
+            poster="demo.jpg"
+            controls
+            playsinline
+            preload="metadata"
+            muted
+            width="1490"
+            height="960"
+          ></video>
+        </section>
+
+        <section id="install">
+          <h2>Install in a couple of minutes</h2>
+          <p class="section-lede">
+            Onward isn't in Obsidian's plugin directory yet, so it installs through BRAT, the usual
+            installer for plugins in beta. BRAT also keeps Onward up to date.
+          </p>
+          <ol class="steps">
+            <li>
+              <h3>Get BRAT</h3>
+              <p>Install and enable BRAT from Obsidian's community plugins.</p>
+              <a class="btn btn-quiet" href="https://obsidian.md/plugins?id=obsidian42-brat"
+                >Open BRAT</a
+              >
+            </li>
+            <li>
+              <h3>Add Onward</h3>
+              <p>
+                This link opens BRAT in Obsidian with Onward filled in. Click
+                <strong>Add plugin</strong>, then turn Onward on under
+                <strong>Settings → Community plugins</strong>.
+              </p>
+              <a class="btn btn-primary" href="obsidian://brat?plugin=louislva/obsidian-onward"
+                >Add Onward to Obsidian</a
+              >
+              <p class="fine" style="margin: 12px 0 0">
+                Link not opening? In BRAT, choose <strong>Add beta plugin</strong> and paste
+                <code>louislva/obsidian-onward</code>.
+              </p>
+            </li>
+            <li>
+              <h3>Add your key</h3>
+              <p>
+                Create a key at <a href="https://openrouter.ai/keys">openrouter.ai</a> and paste it
+                into <strong>Settings → Onward</strong>. You pay OpenRouter directly for what you use.
+                Then start writing.
+              </p>
+            </li>
+          </ol>
+          <details>
+            <summary>Rather install it by hand?</summary>
+            <ol>
+              <li>
+                Download
+                <a href="https://github.com/louislva/obsidian-onward/releases/latest/download/main.js"
+                  ><code>main.js</code></a
+                >,
+                <a
+                  href="https://github.com/louislva/obsidian-onward/releases/latest/download/manifest.json"
+                  ><code>manifest.json</code></a
+                >
+                and
+                <a href="https://github.com/louislva/obsidian-onward/releases/latest/download/styles.css"
+                  ><code>styles.css</code></a
+                >.
+              </li>
+              <li>Put them in <code>&lt;your vault&gt;/.obsidian/plugins/onward/</code>.</li>
+              <li>Restart Obsidian and turn Onward on under Settings → Community plugins.</li>
+            </ol>
+            <p style="margin: 12px 0 0">You'll need to repeat this to update.</p>
+          </details>
+        </section>
+
+        <section class="privacy">
+          <h2>What leaves your vault</h2>
+          <p>
+            Each suggestion sends the note you're writing to OpenRouter and the model you picked, along
+            with the recent journal entries and linked notes and pages it reads for context. You can switch that
+            extra context off in settings. Nothing else is sent, and your key is never logged.
+          </p>
+          <p>
+            Onward is open source under the MIT license, so you can
+            <a href="https://github.com/louislva/obsidian-onward">read every line</a> of it.
+          </p>
+        </section>
+      </main>
+
+      <footer>
+        <span>Made by <a href="https://louisarge.com">Louis Arge</a></span>
+        <span
+          >Requires Obsidian 1.5 or newer ·
+          <a href="https://github.com/louislva/obsidian-onward">GitHub</a></span
+        >
+      </footer>
+    </div>
+
+    <script>
+      // The hero note types itself: a sentence, a pause, Onward's gray suggestion, then Tab.
+      // Only timers run (no animation frames), and everything stops when the note is off screen,
+      // the tab is hidden, or the visitor prefers reduced motion.
+      (function () {
+        var line = document.getElementById('line');
+        var hint = document.getElementById('hint');
+        var status = document.getElementById('status');
+        var beats = [
+          {
+            typed: 'Somewhere around the second corner my head goes quiet,',
+            ghost: ' and whatever I was stuck on starts to sort itself out.',
+          },
+          {
+            typed: ' I used to think I had to be thinking about the problem to solve it.',
+            ghost: ' Now I think I mostly have to stop standing in its way.',
+          },
+        ];
+        var accepted = '';
+        var typed = '';
+        var ghost = '';
+        var caretOn = true;
+        var timer = 0;
+        var blink = 0;
+        var running = false;
+        var queue = [];
+
+        function esc(s) {
+          return s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+        }
+        function render() {
+          line.innerHTML =
+            esc(accepted + typed) +
+            '<span class="caret' +
+            (caretOn ? '' : ' off') +
+            '"></span>' +
+            (ghost ? '<span class="ghost">' + esc(ghost) + '</span>' : '');
+        }
+        function setStatus(s) {
+          status.textContent = s;
+        }
+
+        // A script of small steps, each followed by a delay in milliseconds.
+        function buildScript() {
+          var steps = [];
+          beats.forEach(function (b) {
+            steps.push([function () { setStatus('waiting'); }, 400]);
+            for (var i = 1; i <= b.typed.length; i++) {
+              (function (n) {
+                steps.push([function () { typed = b.typed.slice(0, n); }, 38 + Math.random() * 45]);
+              })(i);
+            }
+            steps.push([function () { setStatus('generating'); }, 1300]);
+            steps.push([
+              function () {
+                ghost = b.ghost;
+                setStatus('generated · shown');
+                hint.classList.add('on');
+              },
+              2100,
+            ]);
+            steps.push([
+              function () {
+                accepted += typed + ghost;
+                typed = '';
+                ghost = '';
+                hint.classList.remove('on');
+                setStatus('waiting');
+              },
+              900,
+            ]);
+          });
+          steps.push([function () {}, 2600]);
+          steps.push([
+            function () {
+              accepted = '';
+              setStatus('waiting');
+            },
+            700,
+          ]);
+          return steps;
+        }
+
+        function tick() {
+          if (!running) return;
+          if (!queue.length) queue = buildScript();
+          var step = queue.shift();
+          step[0]();
+          caretOn = true;
+          render();
+          timer = setTimeout(tick, step[1]);
+        }
+        function start() {
+          if (running) return;
+          running = true;
+          blink = setInterval(function () {
+            caretOn = !caretOn;
+            render();
+          }, 530);
+          tick();
+        }
+        function stop() {
+          running = false;
+          clearTimeout(timer);
+          clearInterval(blink);
+          caretOn = true;
+          render();
+        }
+
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          accepted = beats[0].typed;
+          ghost = beats[0].ghost;
+          hint.classList.add('on');
+          setStatus('generated · shown');
+          render();
+          return;
+        }
+        render();
+        var visible = false;
+        function update() {
+          if (visible && !document.hidden) start();
+          else stop();
+        }
+        new IntersectionObserver(function (entries) {
+          visible = entries[0].isIntersecting;
+          update();
+        }).observe(document.getElementById('note'));
+        document.addEventListener('visibilitychange', update);
+      })();
+    </script>
+  </body>
+</html>

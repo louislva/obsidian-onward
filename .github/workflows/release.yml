@@ -1,0 +1,44 @@
+# Publishes a GitHub release when a version tag is pushed (e.g. `git tag 0.8.4 && git push origin 0.8.4`).
+# BRAT and the landing page's manual-install links download main.js, manifest.json and styles.css
+# from the latest release, so those three files are attached to every release.
+name: Release
+
+on:
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Tag must match manifest version
+        run: |
+          version=$(node -p "require('./manifest.json').version")
+          if [ "$GITHUB_REF_NAME" != "$version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match manifest.json version $version" >&2
+            exit 1
+          fi
+
+      - run: npm ci
+
+      # Typecheck, tests, production bundle and the mobile-load smoke test.
+      - run: npm run check
+
+      - name: Committed main.js must match the fresh build
+        run: git diff --exit-code -- main.js
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" main.js manifest.json styles.css --title "$GITHUB_REF_NAME" --generate-notes

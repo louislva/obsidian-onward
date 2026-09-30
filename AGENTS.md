@@ -35,6 +35,19 @@ file as the project handoff for future agents.
   “Reload plugins” action can refresh the manifest while leaving an existing
   editor extension instance stale.
 
+## Releases and landing page
+
+- Pushing a tag equal to the `manifest.json` version (e.g. `0.8.4`, no `v`)
+  runs `.github/workflows/release.yml`: it runs `npm run check`, fails if the
+  committed `main.js` differs from the fresh build, and publishes a GitHub
+  release with `main.js`, `manifest.json`, and `styles.css` attached. BRAT
+  installs and updates from these releases, and the landing page's manual
+  download links point at `releases/latest/download/<file>`.
+- `site/` is the static landing page for `onward.louisarge.com`: one
+  `index.html` with inline CSS and JS, plus `demo.mp4` and `demo.jpg`. No build
+  step; deploy the `site/` folder as-is (e.g. a Vercel project with root
+  directory `site`). Keep its claims in sync with the plugin's behavior.
+
 ## Development workflow
 
 1. Check `git status --short` before editing.

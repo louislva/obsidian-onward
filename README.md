@@ -77,6 +77,22 @@ scrolling, while a qualifying horizontal gesture is kept away from Obsidian's
 side drawers. The editor keeps focus after acceptance or dismissal, leaving
 the software keyboard open.
 
+## Install
+
+Onward isn't in Obsidian's community plugin directory yet. Install it with
+[BRAT](https://obsidian.md/plugins?id=obsidian42-brat), which also keeps it
+updated:
+
+1. Install and enable BRAT from Obsidian's community plugins.
+2. Open `obsidian://brat?plugin=louislva/obsidian-onward`, or in BRAT choose
+   **Add beta plugin** and paste `louislva/obsidian-onward`.
+3. Enable **Onward** under **Settings → Community plugins** and paste an
+   [OpenRouter key](https://openrouter.ai/keys) into its settings.
+
+To install by hand, download `main.js`, `manifest.json`, and `styles.css` from
+the [latest release](https://github.com/louislva/obsidian-onward/releases/latest)
+into `<vault>/.obsidian/plugins/onward/`.
+
 ## API keys
 
 The plugin first reads `OPENROUTER_API_KEY` from the environment inherited by
