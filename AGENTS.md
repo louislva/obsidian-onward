@@ -46,7 +46,7 @@ file as the project handoff for future agents.
 - `site/` is the landing page for `onward.louisarge.com`: a plain Vite +
   TypeScript project (same setup as sol) with its own `package.json`, separate
   from the plugin's. `index.html`, `src/main.ts` (the self-typing hero demo),
-  `src/style.css`, and `public/demo.mp4` / `public/demo.jpg`. Run `npm install`
+  `src/style.css`, and `public/demo.jpg` (the link-preview image). Run `npm install`
   then `npm run dev` or `npm run build` inside `site/`. Deploy on Vercel with
   root directory `site` (Vite is auto-detected; output `dist`). Keep its claims
   in sync with the plugin's behavior.
