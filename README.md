@@ -35,7 +35,7 @@ request resets that model's failure history.
 
 The initial order is Claude Opus 4.6, Claude Opus 4.5, then Kimi K2. Existing
 installations migrate their saved single-model choice to the top and append the
-default choices underneath it. Prompts first read yesterday's and today's
+default choices underneath it. Prompts first read the last seven days' (including today's)
 journals from the configurable `Journal` folder when they exist, excluding the
 active file. They then simulate readable retrieval of direct web links and vault
 links from the active note. Webpages are reduced to Reader View-style Markdown

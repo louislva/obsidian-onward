@@ -167,12 +167,14 @@ export function recentJournalPaths(
     now.getMonth(),
     now.getDate(),
   );
-  const yesterday = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate() - 1,
+  const week = Array.from({ length: 7 }, (_, index) =>
+    new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate() - 6 + index,
+    ),
   );
-  return [yesterday, today]
+  return week
     .map(
       (date) =>
         `${normalizedFolder}/${localDatePathSegment(date)}.md`,

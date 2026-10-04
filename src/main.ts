@@ -2135,7 +2135,7 @@ class InlineCompleteSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Include recent journals")
       .setDesc(
-        "Read yesterday's and today's daily notes when they exist, oldest first. The active file is always excluded.",
+        "Read the last seven days' daily notes, including today, when they exist, oldest first. The active file is always excluded.",
       )
       .addToggle((toggle) =>
         toggle

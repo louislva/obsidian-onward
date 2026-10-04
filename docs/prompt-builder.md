@@ -14,16 +14,16 @@ completion remains a literal prefill.
 
 ## Recent journal context
 
-Before explicit references, the builder looks for yesterday's and today's
-daily notes using the device's local calendar date. The default paths are:
+Before explicit references, the builder looks for the last seven calendar days'
+daily notes, including today, using the device's local calendar date. The default paths are:
 
 ```text
 Journal/YYYY-MM-DD.md
 ```
 
 The folder is configurable. Only files that actually exist are included, in
-chronological order: yesterday, then today. If either journal is the active
-file, that file is excluded while the other recent journal may still be
+chronological order, oldest first. If any journal is the active
+file, that file is excluded while the other recent journals may still be
 included. This prevents duplicating the active prefill while preserving the
 useful task and scratch-note continuity between adjacent days.
 
@@ -69,7 +69,7 @@ keystroke. Ghost text still cannot appear before the configured reveal time.
 
 The current limits are:
 
-- up to two recent journal files plus eight direct resources;
+- up to seven recent journal files plus eight direct resources;
 - 12,000 characters per resource;
 - 48,000 linked-context characters in total by default;
 - two million downloaded HTML characters before extraction.

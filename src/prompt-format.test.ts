@@ -83,13 +83,18 @@ describe("prompt resource formatting", () => {
 });
 
 describe("recent journal paths", () => {
-  it("returns yesterday then today using local calendar dates", () => {
+  it("returns seven days including today, oldest first, using local calendar dates", () => {
     expect(
       recentJournalPaths(
         "/Journey/",
         new Date(2026, 6, 23, 12, 0, 0),
       ),
     ).toEqual([
+      "Journey/2026-07-17.md",
+      "Journey/2026-07-18.md",
+      "Journey/2026-07-19.md",
+      "Journey/2026-07-20.md",
+      "Journey/2026-07-21.md",
       "Journey/2026-07-22.md",
       "Journey/2026-07-23.md",
     ]);
@@ -102,6 +107,11 @@ describe("recent journal paths", () => {
         new Date(2026, 0, 1, 0, 15, 0),
       ),
     ).toEqual([
+      "Journey/2025-12-26.md",
+      "Journey/2025-12-27.md",
+      "Journey/2025-12-28.md",
+      "Journey/2025-12-29.md",
+      "Journey/2025-12-30.md",
       "Journey/2025-12-31.md",
       "Journey/2026-01-01.md",
     ]);
@@ -114,7 +124,14 @@ describe("recent journal paths", () => {
         new Date(2026, 6, 23, 12, 0, 0),
         "Journey/2026-07-23.md",
       ),
-    ).toEqual(["Journey/2026-07-22.md"]);
+    ).toEqual([
+      "Journey/2026-07-17.md",
+      "Journey/2026-07-18.md",
+      "Journey/2026-07-19.md",
+      "Journey/2026-07-20.md",
+      "Journey/2026-07-21.md",
+      "Journey/2026-07-22.md",
+    ]);
   });
 
   it("excludes yesterday's journal when it is the active file", () => {
@@ -124,7 +141,14 @@ describe("recent journal paths", () => {
         new Date(2026, 6, 23, 12, 0, 0),
         "Journey/2026-07-22.md",
       ),
-    ).toEqual(["Journey/2026-07-23.md"]);
+    ).toEqual([
+      "Journey/2026-07-17.md",
+      "Journey/2026-07-18.md",
+      "Journey/2026-07-19.md",
+      "Journey/2026-07-20.md",
+      "Journey/2026-07-21.md",
+      "Journey/2026-07-23.md",
+    ]);
   });
 
   it("allows recent-journal context to be disabled with an empty folder", () => {

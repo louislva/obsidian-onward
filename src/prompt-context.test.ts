@@ -32,7 +32,7 @@ describe("recent journal context loading", () => {
     "Research/Linked.md",
   ];
 
-  it("loads yesterday and today before direct references", async () => {
+  it("loads available recent journals before direct references", async () => {
     const loader = new PromptContextLoader(mockApp(paths));
     const context = await loader.load(
       "[[Research/Linked.md]]",
@@ -51,6 +51,30 @@ describe("recent journal context loading", () => {
     ]);
     expect(context.journalCount).toBe(2);
     expect(context.discovered).toBe(1);
+    expect(context.omitted).toBe(0);
+  });
+
+  it("loads the full week and excludes journals outside the window", async () => {
+    const journals = Array.from({ length: 7 }, (_, index) =>
+      `Journal/2026-07-${17 + index}.md`,
+    );
+    const loader = new PromptContextLoader(mockApp([
+      "Journal/2026-07-16.md",
+      ...journals,
+      "Research/Linked.md",
+    ]));
+    const context = await loader.load(
+      "[[Research/Linked.md]]",
+      file("Drafts/Topic.md"),
+      new AbortController().signal,
+      { ...DEFAULT_PROMPT_CONTEXT_OPTIONS, now },
+    );
+
+    expect(context.resources.map((resource) => resource.target)).toEqual([
+      ...journals,
+      "Research/Linked.md",
+    ]);
+    expect(context.journalCount).toBe(7);
     expect(context.omitted).toBe(0);
   });
 

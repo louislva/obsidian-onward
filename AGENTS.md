@@ -94,7 +94,7 @@ file as the project handoff for future agents.
 
 ## Current behavior
 
-- The prompt builder resolves yesterday's and today's journals plus direct web
+- The prompt builder resolves the last seven days' journals (including today) plus direct web
   and vault links into a synthetic retrieval transcript before the active-file
   prefill. Read `docs/prompt-builder.md` before changing it.
 - The default `lineContextEnabled` layout reads active-file lines `1..N-1`,
@@ -176,12 +176,12 @@ file as the project handoff for future agents.
 - Web context uses Obsidian `requestUrl`, Mozilla Readability, and
   `htmlToMarkdown`; web results are cached for 15 minutes.
   Retrieval is non-recursive and bounded to eight resources, 12,000 characters
-  each, plus up to two recent journal notes; all share a 48,000-character total
+  each, plus up to seven recent journal notes; all share a 48,000-character total
   budget by default. Context failures are omissions, not model failures, and
   must never open a model circuit.
 - Recent journal context defaults to `Journal/YYYY-MM-DD.md` using the device's
-  local date. Load yesterday before today, only when files exist, and exclude
-  the active file if it is either journal. The folder and journal toggle are
+  local date. Load the last seven calendar days including today, oldest first,
+  only when files exist, and exclude the active file if it is any journal. The folder and journal toggle are
   user settings.
 - The prompt builder masks fenced and inline code before link discovery. Chat
   models receive actual command/response role pairs. Base models receive the
