@@ -125,6 +125,19 @@ file as the project handoff for future agents.
 - The bottom-right Obsidian status item uses short model names and reports:
   `waiting`, `generating`, `generated · shown`,
   `generated · not shown`, `missing key`, `out of funds`, or `error`.
+- Direct Anthropic requests use `ANTHROPIC_API_KEY` or the saved
+  `anthropicApiKey`; model IDs are namespaced `anthropic-direct/<API model ID>`
+  to avoid collisions with OpenRouter IDs. Use the Messages API with a separate
+  system field, explicit cache breakpoint, `x-api-key` and `anthropic-version`.
+  Desktop fetch includes Anthropic's direct-browser opt-in header; mobile uses
+  `requestUrl`. Direct Opus 4.5 supports native prefill; other direct models use
+  assistant-history emulation. Direct requests omit sampling overrides.
+- The Anthropic model picker lists the models available to the saved key;
+  direct and OpenRouter models share the same authoritative fallback ranking.
+  Never auto-insert direct models into existing users' rankings.
+- `src/provider-api.ts` holds provider headers and response-text parsing.
+  Anthropic cache usage adds uncached, cache-read, and cache-write input tokens
+  for the denominator. Prompt preview includes its separate system field.
 - OpenRouter HTTP 402 responses and recognizable insufficient-credit messages
   are quiet errors. Show `out of funds` in the corner status and retain the
   full provider message in its hover detail, but never create an Obsidian
@@ -252,8 +265,8 @@ models using assistant-history emulated prefill.
 
 ## Keys and privacy
 
-- OpenRouter uses `OPENROUTER_API_KEY`. The visible settings UI only exposes
-  the OpenRouter key.
+- OpenRouter uses `OPENROUTER_API_KEY`; direct Anthropic uses
+  `ANTHROPIC_API_KEY`. Both have password fields in settings.
 - Dormant Tinker support reads `TINKER_API_KEY` or the preserved
   `tinkerApiKey` setting when a legacy Tinker model remains explicitly ranked.
 - Environment variables take precedence over keys saved in plugin settings.

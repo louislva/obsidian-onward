@@ -33,6 +33,7 @@ import {
 } from "./prompt-context";
 import type { PromptContext } from "./prompt-format";
 import {
+  ANTHROPIC_MODEL_PREFIX,
   buildCompletionRequest,
   DEFAULT_MODEL_PRIORITY,
   formatCompletionPrompt,
@@ -56,6 +57,11 @@ import {
   type PromptCacheUsage,
 } from "./completion";
 import {
+  completionHeaders,
+  completionResponseText,
+  type CompletionResponse,
+} from "./provider-api";
+import {
   createPendingTrainingExample,
   resolveTrainingDataFolder,
   writeTrainingDataRecord,
@@ -70,6 +76,7 @@ import {
 
 interface InlineCompleteSettings {
   apiKey: string;
+  anthropicApiKey: string;
   tinkerApiKey: string;
   modelPriority: string[];
   pauseDelayMs: number;
@@ -89,6 +96,7 @@ interface InlineCompleteSettings {
 
 const DEFAULT_SETTINGS: InlineCompleteSettings = {
   apiKey: "",
+  anthropicApiKey: "",
   tinkerApiKey: "",
   modelPriority: DEFAULT_MODEL_PRIORITY,
   pauseDelayMs: 2000,
@@ -113,16 +121,6 @@ interface GhostText {
   replaceFrom: number;
   text: string;
   modelId: string;
-}
-
-interface CompletionResponse {
-  choices?: Array<{
-    message?: { content?: string | null };
-    text?: string;
-  }>;
-  error?: { message?: string };
-  detail?: string;
-  usage?: unknown;
 }
 
 interface OpenRouterCatalogModel {
@@ -677,6 +675,8 @@ class CompletionController {
 
         try {
           const isTinker = model.backend === "tinker";
+          const service = isTinker ? "Tinker" : model.backend === "anthropic" ? "Anthropic" : "OpenRouter";
+          const headers = completionHeaders(model.backend, apiKey);
           const request = buildCompletionRequest(model, snapshot, {
             maxTokens: this.plugin.settings.maxTokens,
             temperature: this.plugin.settings.temperature,
@@ -690,14 +690,11 @@ class CompletionController {
           let responseOk: boolean;
           let responseStatus: number;
 
-          if (isTinker) {
+          if (isTinker || !Platform.isDesktopApp) {
             const response = await requestUrl({
               url: request.url,
               method: "POST",
-              headers: {
-                Authorization: `Bearer ${apiKey}`,
-                "Content-Type": "application/json",
-              },
+              headers,
               body: JSON.stringify(request.body),
               throw: false,
             });
@@ -706,39 +703,13 @@ class CompletionController {
             try {
               payload = response.json as CompletionResponse;
             } catch {
-              throw new Error("Tinker returned an invalid response");
-            }
-          } else if (!Platform.isDesktopApp) {
-            const response = await requestUrl({
-              url: request.url,
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${apiKey}`,
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://obsidian.md",
-                "X-Title": "Obsidian Onward",
-              },
-              body: JSON.stringify(request.body),
-              throw: false,
-            });
-            responseStatus = response.status;
-            responseOk =
-              response.status >= 200 && response.status < 300;
-            try {
-              payload = response.json as CompletionResponse;
-            } catch {
-              throw new Error("OpenRouter returned an invalid response");
+              throw new Error(`${service} returned an invalid response`);
             }
           } else {
             const response = await fetch(request.url, {
               method: "POST",
               signal: controller.signal,
-              headers: {
-                Authorization: `Bearer ${apiKey}`,
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://obsidian.md",
-                "X-Title": "Obsidian Onward",
-              },
+              headers,
               body: JSON.stringify(request.body),
             });
             responseStatus = response.status;
@@ -746,7 +717,7 @@ class CompletionController {
             try {
               payload = (await response.json()) as CompletionResponse;
             } catch {
-              throw new Error("OpenRouter returned an invalid response");
+              throw new Error(`${service} returned an invalid response`);
             }
           }
 
@@ -757,7 +728,6 @@ class CompletionController {
             return;
           }
           if (!responseOk) {
-            const service = isTinker ? "Tinker" : "OpenRouter";
             throw new ProviderRequestError(
               payload.error?.message ??
                 payload.detail ??
@@ -769,10 +739,7 @@ class CompletionController {
           if (!isTinker) {
             this.plugin.recordPromptCacheUsage(model, payload.usage);
           }
-          const raw =
-            payload.choices?.[0]?.message?.content ??
-            payload.choices?.[0]?.text ??
-            "";
+          const raw = completionResponseText(model.backend, payload);
           if (!raw) {
             throw new Error("The model returned no completion text");
           }
@@ -1039,17 +1006,18 @@ class PromptPreviewModal extends Modal {
   }
 }
 
-class OpenRouterModelSuggestModal extends FuzzySuggestModal<OpenRouterCatalogModel> {
+class ModelSuggestModal extends FuzzySuggestModal<OpenRouterCatalogModel> {
   constructor(
     app: App,
     private readonly models: OpenRouterCatalogModel[],
     private readonly chooseModel: (
       model: OpenRouterCatalogModel,
     ) => Promise<void>,
+    provider = "OpenRouter",
   ) {
     super(app);
-    this.setPlaceholder("Search OpenRouter model IDs…");
-    this.emptyStateText = "No matching OpenRouter models";
+    this.setPlaceholder(`Search ${provider} model IDs…`);
+    this.emptyStateText = `No matching ${provider} models`;
   }
 
   getItems(): OpenRouterCatalogModel[] {
@@ -1296,14 +1264,14 @@ export default class InlineCompletePlugin extends Plugin {
   ): void {
     this.latestPromptCache = {
       model,
-      usage: parsePromptCacheUsage(usage),
+      usage: parsePromptCacheUsage(usage, model.backend),
     };
     this.renderPromptCacheIndicator();
   }
 
   private promptCacheDetail(): string {
     if (!this.latestPromptCache) {
-      return "Prompt cache: no completed OpenRouter request yet";
+      return "Prompt cache: no completed chat request yet";
     }
     const { model, usage } = this.latestPromptCache;
     if (!usage) {
@@ -1422,7 +1390,41 @@ export default class InlineCompletePlugin extends Plugin {
     return models;
   }
 
+  async loadAnthropicModels(): Promise<OpenRouterCatalogModel[]> {
+    const apiKey = this.getApiKey("anthropic");
+    if (!apiKey) throw new Error("Add an Anthropic API key first.");
+    const models: OpenRouterCatalogModel[] = [];
+    let afterId: string | undefined;
+    do {
+      const response = await requestUrl({
+        url: `https://api.anthropic.com/v1/models?limit=100${afterId ? `&after_id=${encodeURIComponent(afterId)}` : ""}`,
+        headers: completionHeaders("anthropic", apiKey),
+        throw: false,
+      });
+      const payload = response.json;
+      if (response.status < 200 || response.status >= 300) {
+        throw new Error(payload?.error?.message ?? `Anthropic model list failed (HTTP ${response.status})`);
+      }
+      if (!Array.isArray(payload?.data)) throw new Error("Anthropic returned an invalid model list");
+      for (const model of payload.data) {
+        if (typeof model.id === "string") models.push({
+          id: `${ANTHROPIC_MODEL_PREFIX}${model.id}`,
+          name: typeof model.display_name === "string" ? model.display_name : model.id,
+        });
+      }
+      const next = payload.has_more && typeof payload.last_id === "string" ? payload.last_id : undefined;
+      if (next === afterId) break;
+      afterId = next;
+    } while (afterId);
+    return models;
+  }
+
   getApiKey(backend: CompletionBackend): string {
+    if (backend === "anthropic") {
+      const environmentKey = typeof process !== "undefined"
+        ? process.env.ANTHROPIC_API_KEY?.trim() : "";
+      return environmentKey || this.settings.anthropicApiKey.trim();
+    }
     if (backend === "tinker") {
       const environmentKey =
         typeof process !== "undefined"
@@ -1495,7 +1497,7 @@ export default class InlineCompletePlugin extends Plugin {
     for (const controller of this.liveControllers) controller.refresh();
   }
 
-  async addOpenRouterModel(modelId: string): Promise<boolean> {
+  async addModel(modelId: string): Promise<boolean> {
     if (this.settings.modelPriority.includes(modelId)) return false;
     this.settings.modelPriority = [
       ...this.settings.modelPriority,
@@ -1521,7 +1523,7 @@ export default class InlineCompletePlugin extends Plugin {
       "idle",
       this.settings.modelPriority.length > 0
         ? `${modelId} removed from fallback order`
-        : "No models configured. Add an OpenRouter model in settings.",
+        : "No models configured. Add a model in settings.",
     );
     for (const controller of this.liveControllers) controller.refresh();
     return true;
@@ -1563,9 +1565,10 @@ export default class InlineCompletePlugin extends Plugin {
   ): FailedModelAttempt {
     const message = error instanceof Error ? error.message : String(error);
     const fundingError =
-      model.backend === "openrouter-prefill" &&
+      model.backend !== "tinker" &&
       ((error instanceof ProviderRequestError && error.status === 402) ||
-        isOpenRouterFundingError(message));
+        isOpenRouterFundingError(message) ||
+        (model.backend === "anthropic" && /credit balance is too low/i.test(message)));
     const cooldown = nextModelFailureCooldown(
       this.modelCircuits.get(model.id),
       attemptStartedAt,
@@ -1589,7 +1592,7 @@ export default class InlineCompletePlugin extends Plugin {
     if (rankedModels.length === 0) {
       this.setStatus(
         "error",
-        "No models configured. Add an OpenRouter model in settings.",
+        "No models configured. Add a model in settings.",
       );
       if (!this.missingKeyNotified) {
         this.missingKeyNotified = true;
@@ -1606,7 +1609,7 @@ export default class InlineCompletePlugin extends Plugin {
     if (keyedModels.length === 0) {
       this.setStatus(
         "missing-key",
-        "No ranked model has an available API key. Set OPENROUTER_API_KEY or save a key in plugin settings.",
+        "No ranked model has an available API key. Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY, or save the matching key in plugin settings.",
       );
     } else {
       const now = Date.now();
@@ -1641,7 +1644,7 @@ export default class InlineCompletePlugin extends Plugin {
     this.missingKeyNotified = true;
     new Notice(
       keyedModels.length === 0
-        ? "Onward needs an OpenRouter API key."
+        ? "Onward needs an API key for one of its ranked models."
         : "Onward: all configured models are temporarily cooling down.",
       8000,
     );
@@ -1737,6 +1740,7 @@ class InlineCompleteSettingTab extends PluginSettingTab {
       cls: "onward-settings-note",
       text: [
         `OpenRouter key: ${hasOpenRouterKey ? "available" : "missing"}.`,
+        `Anthropic key: ${this.plugin.getApiKey("anthropic") ? "available" : "missing"}.`,
         "Environment variables take precedence over saved keys. Fallback services may receive the active note sequentially when an earlier model fails.",
       ].join(" "),
     });
@@ -1766,6 +1770,20 @@ class InlineCompleteSettingTab extends PluginSettingTab {
         text.inputEl.type = "password";
       });
     apiSetting.settingEl.addClass("onward-secret");
+
+    const anthropicSetting = new Setting(containerEl)
+      .setName("Anthropic API key")
+      .setDesc("Connect directly to Claude. Fallback when ANTHROPIC_API_KEY is not available to Obsidian.")
+      .addText((text) => {
+        text.setPlaceholder("sk-ant-…")
+          .setValue(this.plugin.settings.anthropicApiKey)
+          .onChange(async (value) => {
+            this.plugin.settings.anthropicApiKey = value.trim();
+            await this.plugin.saveSettings();
+          });
+        text.inputEl.type = "password";
+      });
+    anthropicSetting.settingEl.addClass("onward-secret");
 
     // Tinker is dormant for now. Preserve its saved key and backend code so
     // the experiment can be resumed without losing local configuration.
@@ -1854,9 +1872,7 @@ class InlineCompleteSettingTab extends PluginSettingTab {
       const backend =
         model.backend === "tinker"
           ? "Tinker raw completion"
-          : model.prefillMode === "assistant-history"
-            ? "OpenRouter emulated prefill"
-            : "OpenRouter prefill";
+          : `${model.backend === "anthropic" ? "Anthropic direct" : "OpenRouter"} ${model.prefillMode === "assistant-history" ? "emulated prefill" : "prefill"}`;
       const modelSetting = new Setting(containerEl)
         .setName(`${index + 1}. ${model.shortName}`)
         .setDesc(`${backend} · ${model.apiModel}`);
@@ -1940,7 +1956,7 @@ class InlineCompleteSettingTab extends PluginSettingTab {
     if (rankedModels.length === 0) {
       containerEl.createEl("p", {
         cls: "onward-settings-note",
-        text: "No models configured. Add an OpenRouter model to resume completions.",
+        text: "No models configured. Add a model to resume completions.",
       });
     }
 
@@ -1965,11 +1981,11 @@ class InlineCompleteSettingTab extends PluginSettingTab {
                 new Notice("All available OpenRouter models are already added.");
                 return;
               }
-              new OpenRouterModelSuggestModal(
+              new ModelSuggestModal(
                 this.app,
                 models,
                 async (model) => {
-                  await this.plugin.addOpenRouterModel(model.id);
+                  await this.plugin.addModel(model.id);
                   this.display();
                 },
               ).open();
@@ -1982,6 +1998,32 @@ class InlineCompleteSettingTab extends PluginSettingTab {
             }
           }),
       );
+
+    new Setting(containerEl)
+      .setName("Add Anthropic model")
+      .setDesc("Fetch the Claude models available to your Anthropic API key and add one to the fallback order. Direct and OpenRouter models can be mixed.")
+      .addExtraButton((button) => button
+        .setIcon("plus")
+        .setTooltip("Add a direct Anthropic model")
+        .onClick(async () => {
+          button.setDisabled(true);
+          try {
+            const models = (await this.plugin.loadAnthropicModels())
+              .filter((model) => !this.plugin.settings.modelPriority.includes(model.id));
+            if (models.length === 0) {
+              new Notice("All available Anthropic models are already added.");
+              return;
+            }
+            new ModelSuggestModal(this.app, models, async (model) => {
+              await this.plugin.addModel(model.id);
+              this.display();
+            }, "Anthropic").open();
+          } catch (error) {
+            new Notice(`Onward: ${error instanceof Error ? error.message : String(error)}`, 6000);
+          } finally {
+            button.setDisabled(false);
+          }
+        }));
 
     if (Platform.isDesktopApp) {
       containerEl.createEl("h3", { text: "Training data" });
@@ -2080,7 +2122,7 @@ class InlineCompleteSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Temperature")
-      .setDesc("Lower is more literal and predictable. Default: 1.")
+      .setDesc("Lower is more literal and predictable. Default: 1. Direct Anthropic models use their default sampling settings.")
       .addText((text) =>
         text
           .setValue(String(this.plugin.settings.temperature))

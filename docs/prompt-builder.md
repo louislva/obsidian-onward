@@ -106,6 +106,15 @@ For native-prefill models, the final assistant message is the API prefill and
 generation continues it directly. For Opus 4.6's assistant-history
 approximation, the existing terse continuation user message follows it.
 
+Direct Anthropic models use the same retrieval pairs in the Messages API, with
+the system prompt in its separate `system` field. Direct Opus 4.5 uses native
+prefill; other direct models use assistant-history emulation. A whitespace-ended
+Opus 4.5 prefix uses emulation because Anthropic rejects trailing whitespace on
+native prefills. Empty cursor text becomes a request to insert at the selected
+empty line, and empty reference responses are explicitly labeled empty, rather
+than submitting invalid empty assistant messages. Prompt preview includes
+both `system` and `messages` for these requests.
+
 The cursor line is deliberately absent from the two surrounding-context reads.
 Including line 42 in the second read would show the model the target line's
 existing ending; an ordinary causal model would tend to retrieve that ending
@@ -171,7 +180,8 @@ contains the resources available within the latency and size budgets.
 Clicking the status item opens a read-only modal containing the exact prompt
 most recently built for the displayed model. Raw base-model prompts are shown
 unchanged. Chat prompts are shown as the complete message array in formatted
-JSON, preserving every role boundary and the final assistant prefill. Request
+JSON, preserving every role boundary and the final assistant prefill. Direct
+Anthropic previews also include the separate system field. Request
 headers and API keys are never stored in the preview.
 
 If model fallback occurs, every attempted provider receives the same built

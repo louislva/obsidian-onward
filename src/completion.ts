@@ -3,7 +3,10 @@ import {
   type PromptContext,
 } from "./prompt-format";
 
-export type CompletionBackend = "tinker" | "openrouter-prefill";
+export type CompletionBackend = "tinker" | "openrouter-prefill" | "anthropic";
+
+// Keep direct API IDs distinct from OpenRouter's anthropic/... IDs.
+export const ANTHROPIC_MODEL_PREFIX = "anthropic-direct/";
 
 export interface CompletionModel {
   id: string;
@@ -82,6 +85,21 @@ function genericOpenRouterShortName(id: string): string {
 }
 
 export function getCompletionModel(id: string): CompletionModel {
+  if (id.startsWith(ANTHROPIC_MODEL_PREFIX)) {
+    const apiModel = id.slice(ANTHROPIC_MODEL_PREFIX.length);
+    const name = apiModel.replace(/^claude-/, "").replace(/-20\d{6}$/, "");
+    const shortName = name.replace(/-(\d+)-(\d+)$/, " $1.$2")
+      .replace(/-/g, " ").replace(/^\w/, (letter) => letter.toUpperCase());
+    const native = /^claude-opus-4-5(?:-20\d{6})?$/.test(apiModel);
+    return {
+      id,
+      label: `Anthropic ${native ? "prefill" : "emulated prefill"} · ${apiModel}`,
+      shortName: `${shortName} · API`,
+      backend: "anthropic",
+      apiModel,
+      prefillMode: native ? "native" : "assistant-history",
+    };
+  }
   const curated = COMPLETION_MODELS.find(
     (candidate) => candidate.id === id,
   );
@@ -232,9 +250,10 @@ export interface CompletionRequest {
   body: {
     model: string;
     max_tokens: number;
-    temperature: number;
-    top_p: number;
+    temperature?: number;
+    top_p?: number;
     stream: false;
+    system?: string | CompletionTextBlock[];
     prompt?: string;
     stop?: string[];
     messages?: CompletionMessage[];
@@ -254,8 +273,25 @@ export interface PromptCacheUsage {
 
 export function parsePromptCacheUsage(
   usage: unknown,
+  backend?: CompletionBackend,
 ): PromptCacheUsage | null {
   if (!usage || typeof usage !== "object") return null;
+  if (backend === "anthropic") {
+    const input = Reflect.get(usage, "input_tokens");
+    const read = Reflect.get(usage, "cache_read_input_tokens");
+    const written = Reflect.get(usage, "cache_creation_input_tokens");
+    if (![input, read, written].every(
+      (value) => typeof value === "number" && Number.isFinite(value) && value >= 0,
+    )) return null;
+    const total = input + read + written;
+    if (!Number.isFinite(total)) return null;
+    return {
+      promptTokens: total,
+      cachedTokens: read,
+      cacheWriteTokens: written,
+      percentage: total === 0 ? 0 : Math.min(100, (read / total) * 100),
+    };
+  }
   const promptTokens = Reflect.get(usage, "prompt_tokens");
   const details = Reflect.get(usage, "prompt_tokens_details");
   if (
@@ -316,7 +352,13 @@ export function formatCompletionPrompt(
 
   return {
     format: "Chat messages (JSON)",
-    text: JSON.stringify(request.body.messages ?? [], null, 2),
+    text: JSON.stringify(
+      request.body.system !== undefined
+        ? { system: request.body.system, messages: request.body.messages ?? [] }
+        : request.body.messages ?? [],
+      null,
+      2,
+    ),
   };
 }
 
@@ -616,7 +658,14 @@ export function buildCompletionRequest(
   const provider = options.routeByLatency
     ? { sort: "latency" as const }
     : undefined;
-  const prefillMode = model.prefillMode ?? "native";
+  let prefillMode = model.prefillMode ?? "native";
+  const cursorPrefix = options.lineContextEnabled
+    ? buildActiveLinePrompt(snapshot).currentLinePrefix
+    : canonicalizeCompletionPrefix(snapshot.document.slice(0, snapshot.cursor));
+  // Anthropic forbids trailing whitespace on a final assistant prefill.
+  if (model.backend === "anthropic" && /\s$/.test(cursorPrefix)) {
+    prefillMode = "assistant-history";
+  }
   const messages = buildPrefillMessages(
     snapshot,
     prefillMode,
@@ -624,16 +673,50 @@ export function buildCompletionRequest(
     options.lineContextEnabled,
   );
 
+  const cachedMessages = addPromptCacheBreakpoint(
+    messages,
+    snapshot,
+    prefillMode,
+    options.lineContextEnabled ?? false,
+  );
+
+  if (model.backend === "anthropic") {
+    const system = cachedMessages.find((message) => message.role === "system");
+    const directMessages = cachedMessages.filter((message) => message.role !== "system");
+    const cursorIndex = directMessages.length - (prefillMode === "assistant-history" ? 2 : 1);
+    // Empty assistant messages are invalid in the Messages API. Keep the
+    // selector as the final request rather than continuing an earlier line.
+    if (!cursorPrefix.trim()) {
+      directMessages.splice(cursorIndex);
+      const selector = directMessages.at(-1);
+      if (selector && typeof selector.content === "string") {
+        selector.content += "\nThe selected text is empty. Output only the new text to insert here.";
+      }
+    }
+    for (const message of directMessages) {
+      const text = typeof message.content === "string" ? message.content
+        : message.content.map((block) => block.text).join("");
+      if (!text.trim()) message.content = "[Empty reference content]";
+    }
+    return {
+      url: "https://api.anthropic.com/v1/messages",
+      body: {
+        model: model.apiModel,
+        max_tokens: options.maxTokens,
+        stream: false,
+        // Newer Claude models reject sampling overrides. Defaults work for
+        // both old and new models; never send OpenRouter routing fields here.
+        ...(system ? { system: system.content } : {}),
+        messages: directMessages,
+      },
+    };
+  }
+
   return {
     url: "https://openrouter.ai/api/v1/chat/completions",
     body: {
       ...common,
-      messages: addPromptCacheBreakpoint(
-        messages,
-        snapshot,
-        prefillMode,
-        options.lineContextEnabled ?? false,
-      ),
+      messages: cachedMessages,
       session_id: promptCacheSessionId(snapshot),
       ...(provider ? { provider } : {}),
     },
