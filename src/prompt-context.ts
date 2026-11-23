@@ -34,7 +34,13 @@ interface WebCacheEntry {
   promise: Promise<string | null>;
 }
 
-const WEB_CACHE_SUCCESS_MS = 15 * 60_000;
+interface SavedWebCacheEntry {
+  url: string;
+  content: string;
+  expiresAt: number;
+}
+
+const WEB_CACHE_SUCCESS_MS = 3 * 24 * 60 * 60_000;
 const WEB_CACHE_FAILURE_MS = 60_000;
 const MAX_WEB_RESPONSE_CHARACTERS = 2_000_000;
 
@@ -100,8 +106,60 @@ export function readableWebMarkdown(
 
 export class PromptContextLoader {
   private readonly webCache = new Map<string, WebCacheEntry>();
+  private readonly savedWebCache = new Map<string, SavedWebCacheEntry>();
+  private cacheWriteQueue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly app: App) {}
+  constructor(
+    private readonly app: App,
+    private readonly cachePath?: string,
+  ) {}
+
+  async initialize(): Promise<void> {
+    if (!this.cachePath) return;
+    try {
+      const saved = JSON.parse(await this.app.vault.adapter.read(this.cachePath));
+      if (saved?.version !== 1 || !Array.isArray(saved.entries)) return;
+      const now = Date.now();
+      for (const entry of saved.entries) {
+        if (
+          !entry ||
+          typeof entry.url !== "string" ||
+          !/^https?:\/\//iu.test(entry.url) ||
+          typeof entry.content !== "string" ||
+          entry.content.length > MAX_WEB_RESPONSE_CHARACTERS ||
+          typeof entry.expiresAt !== "number" ||
+          !Number.isFinite(entry.expiresAt) ||
+          entry.expiresAt <= now ||
+          entry.expiresAt > now + WEB_CACHE_SUCCESS_MS
+        ) continue;
+        this.savedWebCache.set(entry.url, entry);
+        this.webCache.set(entry.url, {
+          expiresAt: entry.expiresAt,
+          promise: Promise.resolve(entry.content),
+        });
+      }
+    } catch {
+      // A missing or damaged cache must not prevent the plugin from loading.
+    }
+  }
+
+  private persistWebCache(): Promise<void> {
+    if (!this.cachePath) return Promise.resolve();
+    const cachePath = this.cachePath;
+    this.cacheWriteQueue = this.cacheWriteQueue.then(async () => {
+      const now = Date.now();
+      for (const [url, entry] of this.savedWebCache) {
+        if (entry.expiresAt <= now) this.savedWebCache.delete(url);
+      }
+      await this.app.vault.adapter.write(cachePath, JSON.stringify({
+        version: 1,
+        entries: [...this.savedWebCache.values()],
+      }));
+    }).catch(() => {
+      // Disk failures leave the in-memory cache usable and allow later retries.
+    });
+    return this.cacheWriteQueue;
+  }
 
   async load(
     markdown: string,
@@ -291,12 +349,16 @@ export class PromptContextLoader {
       expiresAt: now + WEB_CACHE_SUCCESS_MS,
       promise: Promise.resolve(null),
     };
-    entry.promise = this.fetchWebContent(url).then((content) => {
+    entry.promise = this.fetchWebContent(url).then(async (content) => {
       entry.expiresAt =
         Date.now() +
         (content === null
           ? WEB_CACHE_FAILURE_MS
           : WEB_CACHE_SUCCESS_MS);
+      if (content !== null) {
+        this.savedWebCache.set(url, { url, content, expiresAt: entry.expiresAt });
+        await this.persistWebCache();
+      }
       return content;
     });
     this.webCache.set(url, entry);

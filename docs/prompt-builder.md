@@ -58,7 +58,14 @@ View, and Obsidian converts the extracted article HTML to Markdown. Plain text,
 Markdown, and JSON responses are included directly. Binary responses and
 failed requests are omitted.
 
-Web results are cached in memory for 15 minutes. The plugin waits at most 1.2
+Successful web results are cached for 3 days (72 hours) from retrieval, both in
+memory and in `web-cache.json` inside the Onward plugin folder. The disk cache
+survives Obsidian restarts and plugin reloads; reading it does not extend its
+expiry. Failed requests are cached in memory for 1 minute before retrying.
+Cache reads and writes use Obsidian's vault adapter on desktop and mobile;
+missing, invalid, or expired entries are ignored, and disk errors do not block
+completion generation. The cache contains retrieved URLs and page text in plain
+text, separately from settings and API keys. The plugin waits at most 1.2
 seconds for each page, with all references loaded concurrently. A page that
 misses that deadline continues loading into the cache and can appear in the
 next completion. This context wait is added to the request head start, so
@@ -195,6 +202,7 @@ have a separate toggle.
 - PDFs, images, and other binary vault or web resources are not converted.
 - Markdown destinations containing unusual nested parentheses may not all be
   discovered by the lightweight source scanner.
-- Web cache is in-memory and resets when the plugin reloads.
+- The disk cache may sync with the vault's plugin folder, depending on the user's
+  sync configuration.
 - The implementation has pure serialization/discovery tests plus mocked-vault
-  journal-loading tests.
+  journal-loading and persistent web-cache tests.

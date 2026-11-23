@@ -39,7 +39,11 @@ default choices underneath it. Prompts first read the last seven days' (includin
 journals from the configurable `Journal` folder when they exist, excluding the
 active file. They then simulate readable retrieval of direct web links and vault
 links from the active note. Webpages are reduced to Reader View-style Markdown
-and linked vault files are resolved through Obsidian.
+and linked vault files are resolved through Obsidian. Successfully retrieved
+web content is cached for 3 days (72 hours), including across app restarts, in
+`web-cache.json` inside the plugin folder. This file stores URLs and page text
+in plain text, separately from settings and API keys. Failed fetches retry after
+1 minute.
 
 The default line-aware layout presents the lines before the cursor line, then
 the lines following it, using synthetic `sed -n` command/response pairs. The

@@ -1073,7 +1073,9 @@ export default class InlineCompletePlugin extends Plugin {
 
   async onload(): Promise<void> {
     await this.loadSettings();
-    this.promptContextLoader = new PromptContextLoader(this.app);
+    const pluginDir = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
+    this.promptContextLoader = new PromptContextLoader(this.app, `${pluginDir}/web-cache.json`);
+    await this.promptContextLoader.initialize();
     this.statusBarItem = this.addStatusBarItem();
     this.statusBarItem.addClass("onward-status");
     this.statusBarItem.setAttribute("role", "button");
@@ -2164,7 +2166,7 @@ class InlineCompleteSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Read supporting context")
       .setDesc(
-        "Include recent journals, referenced vault files, and readable versions of linked webpages in completion prompts. Web content is cached for 15 minutes.",
+        "Include recent journals, referenced vault files, and readable versions of linked webpages in completion prompts. Web content is cached on disk for 3 days, including across restarts.",
       )
       .addToggle((toggle) =>
         toggle

@@ -23,7 +23,7 @@ file as the project handoff for future agents.
 - Public GitHub remote:
   `https://github.com/louislva/obsidian-onward.git`
 - Installed plugin:
-  `/Users/louisarge/Documents/Personal/.obsidian/plugins/onward`
+  `/Users/louisarge/Obsidian/Personal/.obsidian/plugins/onward`
 - Obsidian plugin ID: `onward`.
 - Onward supports desktop, iOS, and Android and requires Obsidian 1.5.0 or
   newer. Keep `manifest.json` at `"isDesktopOnly": false`.
@@ -187,7 +187,11 @@ file as the project handoff for future agents.
   item is keyboard-accessible with Enter/Space. Preserve this diagnostic
   behavior when modifying request handling.
 - Web context uses Obsidian `requestUrl`, Mozilla Readability, and
-  `htmlToMarkdown`; web results are cached for 15 minutes.
+  `htmlToMarkdown`; successful web results are cached for 3 days (72 hours),
+  persisted to `web-cache.json` in the plugin folder via the vault adapter and
+  restored before registering editor extensions. Reads do not extend expiry.
+  Failed fetches stay in memory for 1 minute. Preserve the disk cache during
+  installation, separately from `data.json`; it contains URLs and page text.
   Retrieval is non-recursive and bounded to eight resources, 12,000 characters
   each, plus up to seven recent journal notes; all share a 48,000-character total
   budget by default. Context failures are omissions, not model failures, and
